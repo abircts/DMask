@@ -8,10 +8,10 @@ import previewPiiFields from '@salesforce/apex/PiiMaskingController.previewPiiFi
 import addObjectConfig from '@salesforce/apex/PiiMaskingController.addObjectConfig';
 
 const CONFIG_COLUMNS = [
-    { label: 'Object', fieldName: 'objectName', type: 'text', initialWidth: 200 },
-    { label: 'Field', fieldName: 'fieldName', type: 'text', initialWidth: 200 },
-    { label: 'Masking Type', fieldName: 'maskingType', type: 'text', initialWidth: 130 },
-    { label: 'Pattern', fieldName: 'pattern', type: 'text' }
+    { label: 'Object', fieldName: 'objectName', type: 'text', initialWidth: 180 },
+    { label: 'PII Fields', fieldName: 'fieldCount', type: 'text', initialWidth: 120 },
+    { label: 'Fields Detail', fieldName: 'fields', type: 'text', wrapText: true },
+    { label: 'Strategy', fieldName: 'maskingType', type: 'text', initialWidth: 100 }
 ];
 
 const HISTORY_COLUMNS = [
@@ -185,7 +185,10 @@ export default class PiiMaskingDashboard extends LightningElement {
     }
 
     handleSaveConfig() {
-        addObjectConfig({ objectName: this.selectedObject })
+        // Build comma-separated field names from current preview
+        const fieldsCsv = this.piiPreview.map(f => f.fieldName).join(',');
+
+        addObjectConfig({ objectName: this.selectedObject, fieldsCsv: fieldsCsv })
             .then(message => {
                 this.showToast('success', message);
                 this.selectedObject = '';

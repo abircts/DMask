@@ -22,14 +22,25 @@ public with sharing class PiiMaskingController {
         for (PII_Mask_Config__mdt config : [
             SELECT DeveloperName, Object_API_Name__c, Field_API_Name__c, Masking_Type__c, Pattern__c
             FROM PII_Mask_Config__mdt
-            ORDER BY Object_API_Name__c, Field_API_Name__c
+            ORDER BY Object_API_Name__c
         ]) {
             Map<String, Object> row = new Map<String, Object>();
             row.put('id', config.DeveloperName);
             row.put('objectName', config.Object_API_Name__c);
-            row.put('fieldName', config.Field_API_Name__c != null ? config.Field_API_Name__c : '(auto-detect)');
+            
+            // Show fields as readable list
+            String fields = config.Field_API_Name__c;
+            if (String.isNotBlank(fields) && fields != '(auto-detect)') {
+                // Count fields
+                List<String> fieldList = fields.split(',');
+                row.put('fieldCount', fieldList.size() + ' fields');
+                row.put('fields', fields.replaceAll(',', ', '));
+            } else {
+                row.put('fieldCount', 'Auto-detect');
+                row.put('fields', 'All PII fields auto-detected');
+            }
+            
             row.put('maskingType', config.Masking_Type__c != null ? config.Masking_Type__c : 'Auto');
-            row.put('pattern', config.Pattern__c != null ? config.Pattern__c : '—');
             result.add(row);
         }
         return result;
@@ -140,11 +151,12 @@ public with sharing class PiiMaskingController {
         return result;
     }
 
-    // Save object config — just stores the object name, fields are auto-detected at runtime
+    // Save object config with selected fields. Same developer name = overrides existing.
     @AuraEnabled
-    public static String addObjectConfig(String objectName) {
+    public static String addObjectConfig(String objectName, String fieldsCsv) {
         try {
             Metadata.CustomMetadata cmd = new Metadata.CustomMetadata();
+            // Same developer name per object → upsert behavior
             String devName = objectName.replaceAll('[^a-zA-Z0-9_]', '_');
             
             cmd.fullName = 'PII_Mask_Config__mdt.' + devName;
@@ -155,15 +167,15 @@ public with sharing class PiiMaskingController {
             objField.value = objectName;
             cmd.values.add(objField);
             
-            // Leave Field_API_Name__c empty — auto-detect at runtime
+            // Store the selected field names as comma-separated
             Metadata.CustomMetadataValue fldField = new Metadata.CustomMetadataValue();
             fldField.field = 'Field_API_Name__c';
-            fldField.value = '(auto-detect)';
+            fldField.value = String.isNotBlank(fieldsCsv) ? fieldsCsv : '(auto-detect)';
             cmd.values.add(fldField);
             
             Metadata.CustomMetadataValue typeField = new Metadata.CustomMetadataValue();
             typeField.field = 'Masking_Type__c';
-            typeField.value = 'Random';
+            typeField.value = 'Auto';
             cmd.values.add(typeField);
             
             Metadata.DeployContainer container = new Metadata.DeployContainer();
@@ -171,7 +183,14 @@ public with sharing class PiiMaskingController {
             
             Metadata.Operations.enqueueDeployment(container, new PiiMaskingDeployCallback());
             
-            return 'Object "' + objectName + '" added! PII fields will be auto-detected during masking.';
+            // Check if this is an override
+            List<PII_Mask_Config__mdt> existing = [
+                SELECT Id FROM PII_Mask_Config__mdt WHERE DeveloperName = :devName LIMIT 1
+            ];
+            String msg = existing.isEmpty() 
+                ? 'Object "' + objectName + '" added with ' + fieldsCsv.split(',').size() + ' PII fields.'
+                : 'Object "' + objectName + '" updated (overridden) with ' + fieldsCsv.split(',').size() + ' PII fields.';
+            return msg;
         } catch (Exception e) {
             throw new AuraHandledException('Error saving config: ' + e.getMessage());
         }
