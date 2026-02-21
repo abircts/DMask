@@ -72,16 +72,24 @@ public with sharing class PiiMaskingController {
     @AuraEnabled
     public static List<Map<String, Object>> getJobHistory() {
         List<Map<String, Object>> result = new List<Map<String, Object>>();
-        for (AsyncApexJob job : [
-            SELECT Id, Status, JobItemsProcessed, TotalJobItems, NumberOfErrors,
-                   CreatedDate, CompletedDate, ExtendedStatus, ApexClass.Name
-            FROM AsyncApexJob
-            WHERE ApexClass.Name = 'SandboxDataMasker'
-            AND Status IN ('Completed', 'Failed', 'Aborted')
-            ORDER BY CompletedDate DESC
-            LIMIT 10
+        for (PII_Mask_Log__c log : [
+            SELECT Name, Object_Name__c, Job_Id__c, Status__c, Records_Processed__c,
+                   Records_Failed__c, Error_Details__c, Fields_Masked__c, Completed_Date__c
+            FROM PII_Mask_Log__c
+            ORDER BY Completed_Date__c DESC
+            LIMIT 50
         ]) {
-            result.add(mapJob(job));
+            Map<String, Object> row = new Map<String, Object>();
+            row.put('id', log.Name);
+            row.put('objectName', log.Object_Name__c);
+            row.put('status', log.Status__c);
+            row.put('recordsProcessed', log.Records_Processed__c);
+            row.put('recordsFailed', log.Records_Failed__c);
+            row.put('fieldsMasked', log.Fields_Masked__c);
+            row.put('errorDetails', log.Error_Details__c);
+            row.put('completedDate', log.Completed_Date__c);
+            row.put('jobId', log.Job_Id__c);
+            result.add(row);
         }
         return result;
     }

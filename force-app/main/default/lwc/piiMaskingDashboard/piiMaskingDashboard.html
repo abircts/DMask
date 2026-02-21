@@ -119,10 +119,11 @@
                                                         <div class="slds-truncate">{field.fieldType}</div>
                                                     </td>
                                                     <td>
-                                                        <div class="slds-truncate">
-                                                            <lightning-badge label={field.maskLabel}
-                                                                class={field.badgeClass}></lightning-badge>
-                                                        </div>
+                                                        <lightning-combobox value={field.selectedMask}
+                                                            options={maskingOptions} data-field={field.fieldName}
+                                                            onchange={handleMaskChange} variant="label-hidden"
+                                                            dropdown-alignment="left">
+                                                        </lightning-combobox>
                                                     </td>
                                                     <td>
                                                         <lightning-button-icon icon-name="utility:close"
@@ -187,8 +188,13 @@
                     <span class="slds-truncate slds-var-p-horizontal_small">
                         <lightning-icon icon-name="utility:date_time" size="x-small"
                             class="slds-var-m-right_x-small"></lightning-icon>
-                        Job History
+                        Job Execution History
                     </span>
+                    <template if:true={hasHistory}>
+                        <lightning-button label="Download CSV" icon-name="utility:download" variant="neutral"
+                            onclick={downloadCsv} class="slds-var-m-right_small" size="small">
+                        </lightning-button>
+                    </template>
                 </h3>
                 <div class="slds-section__content">
                     <template if:true={hasHistory}>

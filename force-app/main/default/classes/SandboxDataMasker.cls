@@ -3,6 +3,11 @@ public class SandboxDataMasker implements Database.Batchable<sObject>, Database.
     private List<String> objectsToProcess;
     private String currentObject;
     private List<FieldMaskInfo> fieldsToMask;
+    
+    // Result tracking (Database.Stateful persists across batches)
+    private Integer recordsProcessed = 0;
+    private Integer recordsFailed = 0;
+    private List<String> errors = new List<String>();
 
     @TestVisible private static List<PII_Mask_Config__mdt> mockConfigs;
 
@@ -10,12 +15,14 @@ public class SandboxDataMasker implements Database.Batchable<sObject>, Database.
     public class FieldMaskInfo {
         public String fieldName;
         public Schema.DisplayType fieldType;
-        public String piiCategory; // email, phone, name, address, date, text, number
+        public String piiCategory; // email, phone, name, address, date, text, url
+        public String maskOverride; // null=auto, or explicit override: Static, Random, Suffix
         
         public FieldMaskInfo(String name, Schema.DisplayType fType, String category) {
             this.fieldName = name;
             this.fieldType = fType;
             this.piiCategory = category;
+            this.maskOverride = null;
         }
     }
 
@@ -28,7 +35,7 @@ public class SandboxDataMasker implements Database.Batchable<sObject>, Database.
         if (mockConfigs != null) {
             configs = mockConfigs;
         } else {
-            configs = [SELECT Object_API_Name__c FROM PII_Mask_Config__mdt];
+            configs = [SELECT Object_API_Name__c FROM PII_Mask_Config__mdt WHERE Active__c = true];
         }
 
         Set<String> uniqueObjects = new Set<String>();
@@ -50,10 +57,14 @@ public class SandboxDataMasker implements Database.Batchable<sObject>, Database.
         }
         
         this.currentObject = objectsToProcess[0];
-        this.fieldsToMask = detectPiiFields(currentObject);
+        this.recordsProcessed = 0;
+        this.recordsFailed = 0;
+        this.errors = new List<String>();
+        
+        // Load config to check for field overrides
+        this.fieldsToMask = getFieldsFromConfig(currentObject);
         
         if (fieldsToMask.isEmpty()) {
-            // No PII fields found — build minimal query so batch can finish
             String query = 'SELECT Id FROM ' + currentObject + ' LIMIT 0';
             return Database.getQueryLocator(query);
         }
@@ -71,20 +82,116 @@ public class SandboxDataMasker implements Database.Batchable<sObject>, Database.
         if (fieldsToMask == null || fieldsToMask.isEmpty()) return;
         
         for (sObject record : scope) {
-            for (FieldMaskInfo info : fieldsToMask) {
-                applySmartMask(record, info);
+            try {
+                for (FieldMaskInfo info : fieldsToMask) {
+                    applySmartMask(record, info);
+                }
+                recordsProcessed++;
+            } catch (Exception e) {
+                recordsFailed++;
+                if (errors.size() < 10) {
+                    errors.add(record.Id + ': ' + e.getMessage());
+                }
             }
         }
-        update scope;
+        
+        try {
+            update scope;
+        } catch (Exception e) {
+            recordsFailed += scope.size();
+            if (errors.size() < 10) {
+                errors.add('Bulk update error: ' + e.getMessage());
+            }
+        }
     }
 
     public void finish(Database.BatchableContext bc) {
+        // Log results to PII_Mask_Log__c
+        try {
+            PII_Mask_Log__c log = new PII_Mask_Log__c();
+            log.Object_Name__c = currentObject;
+            log.Job_Id__c = (bc != null) ? String.valueOf(bc.getJobId()) : 'UNKNOWN';
+            log.Status__c = recordsFailed > 0 ? 'Partial' : 'Completed';
+            log.Records_Processed__c = recordsProcessed;
+            log.Records_Failed__c = recordsFailed;
+            log.Completed_Date__c = Datetime.now();
+            
+            // Build fields list
+            List<String> fNames = new List<String>();
+            if (fieldsToMask != null) {
+                for (FieldMaskInfo info : fieldsToMask) {
+                    fNames.add(info.fieldName);
+                }
+            }
+            String fieldsStr = String.join(fNames, ',');
+            log.Fields_Masked__c = fieldsStr.length() > 255 ? fieldsStr.substring(0, 255) : fieldsStr;
+            
+            if (!errors.isEmpty()) {
+                log.Error_Details__c = String.join(errors, '\n');
+                log.Status__c = 'Failed';
+            }
+            
+            insert log;
+        } catch (Exception e) {
+            System.debug('Error creating mask log: ' + e.getMessage());
+        }
+        
+        // Chain next object
         if (objectsToProcess != null && !objectsToProcess.isEmpty()) {
             objectsToProcess.remove(0);
             if (!objectsToProcess.isEmpty()) {
                 Database.executeBatch(new SandboxDataMasker(objectsToProcess));
             }
         }
+    }
+
+    // ---- Load fields from config with overrides ----
+    
+    private List<FieldMaskInfo> getFieldsFromConfig(String objectName) {
+        // Get the stored config
+        String devName = objectName.replaceAll('[^a-zA-Z0-9_]', '_');
+        List<PII_Mask_Config__mdt> configs = [
+            SELECT Field_API_Name__c FROM PII_Mask_Config__mdt 
+            WHERE DeveloperName = :devName AND Active__c = true LIMIT 1
+        ];
+        
+        // Parse stored fields — format: Field1:MaskType,Field2:MaskType,...
+        Map<String, String> fieldOverrides = new Map<String, String>();
+        Set<String> configuredFieldNames = new Set<String>();
+        
+        if (!configs.isEmpty() && String.isNotBlank(configs[0].Field_API_Name__c) 
+            && configs[0].Field_API_Name__c != '(auto-detect)') {
+            for (String entry : configs[0].Field_API_Name__c.split(',')) {
+                entry = entry.trim();
+                if (entry.contains(':')) {
+                    List<String> parts = entry.split(':');
+                    configuredFieldNames.add(parts[0].trim());
+                    fieldOverrides.put(parts[0].trim(), parts[1].trim());
+                } else {
+                    configuredFieldNames.add(entry);
+                }
+            }
+        }
+        
+        // Get auto-detected fields, filter to configured ones
+        List<FieldMaskInfo> allDetected = detectPiiFields(objectName);
+        List<FieldMaskInfo> result = new List<FieldMaskInfo>();
+        
+        if (configuredFieldNames.isEmpty()) {
+            // No config or auto-detect — use all detected fields
+            return allDetected;
+        }
+        
+        for (FieldMaskInfo info : allDetected) {
+            if (configuredFieldNames.contains(info.fieldName)) {
+                // Apply override if set
+                if (fieldOverrides.containsKey(info.fieldName)) {
+                    info.maskOverride = fieldOverrides.get(info.fieldName);
+                }
+                result.add(info);
+            }
+        }
+        return result;
     }
 
     // ---- Auto-detect PII fields ----
@@ -97,67 +204,38 @@ public class SandboxDataMasker implements Database.Batchable<sObject>, Database.
         
         Map<String, Schema.SObjectField> fields = objType.getDescribe().fields.getMap();
         
-        // PII field name patterns (case-insensitive matching)
         Map<String, String> namePatterns = new Map<String, String>{
-            'email' => 'email',
-            'phone' => 'phone',
-            'fax' => 'phone',
-            'mobilephone' => 'phone',
-            'homephone' => 'phone',
-            'otherphone' => 'phone',
-            'firstname' => 'name',
-            'lastname' => 'name',
-            'middlename' => 'name',
-            'name' => 'name',
-            'street' => 'address',
-            'city' => 'address',
-            'state' => 'address',
-            'postalcode' => 'address',
-            'zip' => 'address',
-            'country' => 'address',
-            'mailingstreet' => 'address',
-            'mailingcity' => 'address',
-            'mailingstate' => 'address',
-            'mailingpostalcode' => 'address',
-            'mailingcountry' => 'address',
-            'otherstreet' => 'address',
-            'othercity' => 'address',
-            'otherstate' => 'address',
-            'otherpostalcode' => 'address',
-            'othercountry' => 'address',
-            'billingstreet' => 'address',
-            'billingcity' => 'address',
-            'billingstate' => 'address',
-            'billingpostalcode' => 'address',
-            'billingcountry' => 'address',
-            'shippingstreet' => 'address',
-            'shippingcity' => 'address',
-            'shippingstate' => 'address',
-            'shippingpostalcode' => 'address',
-            'shippingcountry' => 'address',
-            'birthdate' => 'date',
-            'dateofbirth' => 'date',
-            'ssn' => 'text',
-            'socialsecurity' => 'text',
-            'taxid' => 'text',
-            'description' => 'text',
-            'website' => 'url',
-            'title' => 'name'
+            'email' => 'email', 'phone' => 'phone', 'fax' => 'phone',
+            'mobilephone' => 'phone', 'homephone' => 'phone', 'otherphone' => 'phone',
+            'firstname' => 'name', 'lastname' => 'name', 'middlename' => 'name',
+            'name' => 'name', 'title' => 'name',
+            'street' => 'address', 'city' => 'address', 'state' => 'address',
+            'postalcode' => 'address', 'zip' => 'address', 'country' => 'address',
+            'mailingstreet' => 'address', 'mailingcity' => 'address',
+            'mailingstate' => 'address', 'mailingpostalcode' => 'address',
+            'mailingcountry' => 'address', 'otherstreet' => 'address',
+            'othercity' => 'address', 'otherstate' => 'address',
+            'otherpostalcode' => 'address', 'othercountry' => 'address',
+            'billingstreet' => 'address', 'billingcity' => 'address',
+            'billingstate' => 'address', 'billingpostalcode' => 'address',
+            'billingcountry' => 'address', 'shippingstreet' => 'address',
+            'shippingcity' => 'address', 'shippingstate' => 'address',
+            'shippingpostalcode' => 'address', 'shippingcountry' => 'address',
+            'birthdate' => 'date', 'dateofbirth' => 'date',
+            'ssn' => 'text', 'socialsecurity' => 'text', 'taxid' => 'text',
+            'description' => 'text', 'website' => 'url'
         };
         
         for (String fieldKey : fields.keySet()) {
             Schema.DescribeFieldResult fd = fields.get(fieldKey).getDescribe();
             
-            // Must be updateable and accessible
             if (!fd.isUpdateable() || !fd.isAccessible()) continue;
-            // Skip formula, auto-number, system fields
             if (fd.isCalculated() || fd.isAutoNumber()) continue;
             
             String apiName = fd.getName();
             String lowerName = apiName.toLowerCase();
             String category = null;
             
-            // Check by field type first (EMAIL, PHONE are definitive)
             if (fd.getType() == Schema.DisplayType.EMAIL) {
                 category = 'email';
             } else if (fd.getType() == Schema.DisplayType.PHONE) {
@@ -165,13 +243,10 @@ public class SandboxDataMasker implements Database.Batchable<sObject>, Database.
             } else if (fd.getType() == Schema.DisplayType.URL) {
                 category = 'url';
             } else {
-                // Check name pattern match
-                // Strip __c for custom fields
                 String cleanName = lowerName.replace('__c', '');
                 if (namePatterns.containsKey(cleanName)) {
                     category = namePatterns.get(cleanName);
                 } else {
-                    // Partial match for custom fields containing PII keywords
                     for (String pattern : namePatterns.keySet()) {
                         if (cleanName.contains(pattern)) {
                             category = namePatterns.get(pattern);
@@ -189,46 +264,43 @@ public class SandboxDataMasker implements Database.Batchable<sObject>, Database.
         return result;
     }
 
-    // ---- Smart masking by PII category ----
+    // ---- Smart masking by PII category (with override support) ----
     
     private void applySmartMask(sObject record, FieldMaskInfo info) {
         try {
             Object originalValue = record.get(info.fieldName);
             if (originalValue == null) return;
             
+            // Determine effective masking strategy
+            String strategy = info.maskOverride != null ? info.maskOverride : info.piiCategory;
             Object newValue;
             
-            if (info.piiCategory == 'email') {
+            if (strategy == 'email') {
                 newValue = 'masked_' + generateRandomStr(6) + '@example.invalid';
-                
-            } else if (info.piiCategory == 'phone') {
-                // Australian phone format: +61 4XX XXX XXX (mobile)
-                String num = '+61 4' + randomDigits(2) + ' ' + randomDigits(3) + ' ' + randomDigits(3);
-                newValue = num;
-                
-            } else if (info.piiCategory == 'name') {
+            } else if (strategy == 'phone') {
+                newValue = '+61 4' + randomDigits(2) + ' ' + randomDigits(3) + ' ' + randomDigits(3);
+            } else if (strategy == 'name') {
                 newValue = 'Masked_' + generateRandomStr(5);
-                
-            } else if (info.piiCategory == 'address') {
+            } else if (strategy == 'address') {
                 newValue = randomDigits(3) + ' Masked Street';
-                
-            } else if (info.piiCategory == 'date') {
-                // Random date within past 30 years
+            } else if (strategy == 'date') {
                 if (info.fieldType == Schema.DisplayType.DATE) {
-                    Integer daysBack = Integer.valueOf(Math.random() * 10950); // ~30 years
-                    newValue = Date.today().addDays(-daysBack);
+                    newValue = Date.today().addDays(-Integer.valueOf(Math.random() * 10950));
                 } else if (info.fieldType == Schema.DisplayType.DATETIME) {
-                    Integer daysBack = Integer.valueOf(Math.random() * 10950);
-                    newValue = Datetime.now().addDays(-daysBack);
+                    newValue = Datetime.now().addDays(-Integer.valueOf(Math.random() * 10950));
                 } else {
                     newValue = 'XXXX-XX-XX';
                 }
-                
-            } else if (info.piiCategory == 'url') {
+            } else if (strategy == 'url') {
                 newValue = 'https://masked-' + generateRandomStr(5) + '.example.invalid';
-                
+            } else if (strategy == 'Static') {
+                newValue = '***MASKED***';
+            } else if (strategy == 'Suffix') {
+                String orig = String.valueOf(originalValue);
+                newValue = orig.substring(0, Math.min(2, orig.length())) + '***';
+            } else if (strategy == 'Random') {
+                newValue = 'RND_' + generateRandomStr(8);
             } else {
-                // Generic text masking
                 newValue = 'MASKED_' + generateRandomStr(8);
             }
             

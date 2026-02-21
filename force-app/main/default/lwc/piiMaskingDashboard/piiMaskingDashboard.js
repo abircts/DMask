@@ -22,21 +22,32 @@ const CONFIG_COLUMNS = [
 ];
 
 const HISTORY_COLUMNS = [
+    { label: 'Object', fieldName: 'objectName', type: 'text', initialWidth: 140 },
     {
-        label: 'Status', fieldName: 'status', type: 'text', initialWidth: 120,
+        label: 'Status', fieldName: 'status', type: 'text', initialWidth: 100,
         cellAttributes: { class: { fieldName: 'statusClass' } }
     },
-    { label: 'Processed', fieldName: 'processed', type: 'number', initialWidth: 100 },
-    { label: 'Total', fieldName: 'total', type: 'number', initialWidth: 100 },
-    { label: 'Errors', fieldName: 'errors', type: 'number', initialWidth: 100 },
-    {
-        label: 'Started', fieldName: 'createdDate', type: 'date',
-        typeAttributes: { year: 'numeric', month: 'short', day: '2-digit', hour: '2-digit', minute: '2-digit' }
-    },
+    { label: 'Processed', fieldName: 'recordsProcessed', type: 'number', initialWidth: 100 },
+    { label: 'Failed', fieldName: 'recordsFailed', type: 'number', initialWidth: 80 },
+    { label: 'Fields Masked', fieldName: 'fieldsMasked', type: 'text', wrapText: true },
     {
         label: 'Completed', fieldName: 'completedDate', type: 'date',
         typeAttributes: { year: 'numeric', month: 'short', day: '2-digit', hour: '2-digit', minute: '2-digit' }
     }
+];
+
+const MASKING_OPTIONS = [
+    { label: 'Auto (Smart)', value: 'auto' },
+    { label: 'Static (***MASKED***)', value: 'Static' },
+    { label: 'Random String', value: 'Random' },
+    { label: 'Suffix (ab***)', value: 'Suffix' },
+    { label: '📧 Email', value: 'email' },
+    { label: '📞 AU Phone', value: 'phone' },
+    { label: '👤 Name', value: 'name' },
+    { label: '📍 Address', value: 'address' },
+    { label: '📅 Date', value: 'date' },
+    { label: '🔗 URL', value: 'url' },
+    { label: '🔤 Text', value: 'text' }
 ];
 
 const CATEGORY_LABELS = {
@@ -82,6 +93,7 @@ export default class PiiMaskingDashboard extends LightningElement {
 
     configColumns = CONFIG_COLUMNS;
     historyColumns = HISTORY_COLUMNS;
+    maskingOptions = MASKING_OPTIONS;
     _pollTimer;
 
     get hasActiveJobs() { return this.activeJobs && this.activeJobs.length > 0; }
@@ -157,7 +169,7 @@ export default class PiiMaskingDashboard extends LightningElement {
             this.jobHistory = result.map(job => ({
                 ...job,
                 statusClass: job.status === 'Completed' ? 'slds-text-color_success' :
-                    job.status === 'Failed' ? 'slds-text-color_error' : ''
+                    (job.status === 'Failed' || job.status === 'Partial') ? 'slds-text-color_error' : ''
             }));
         }).catch(e => console.error('Error loading job history', e));
     }
@@ -238,6 +250,7 @@ export default class PiiMaskingDashboard extends LightningElement {
             .then(result => {
                 this.piiPreview = result.map(field => ({
                     ...field,
+                    selectedMask: 'auto',
                     maskLabel: CATEGORY_LABELS[field.category] || field.category,
                     badgeClass: 'pii-badge ' + (CATEGORY_BADGES[field.category] || '')
                 }));
@@ -254,6 +267,14 @@ export default class PiiMaskingDashboard extends LightningElement {
         this.piiPreview = this.piiPreview.filter(f => f.fieldName !== fieldToRemove);
     }
 
+    handleMaskChange(event) {
+        const fieldName = event.currentTarget.dataset.field;
+        const newMask = event.detail.value;
+        this.piiPreview = this.piiPreview.map(f =>
+            f.fieldName === fieldName ? { ...f, selectedMask: newMask } : f
+        );
+    }
+
     handleCancelConfig() {
         this.selectedObject = '';
         this.piiPreview = [];
@@ -261,8 +282,11 @@ export default class PiiMaskingDashboard extends LightningElement {
     }
 
     handleSaveConfig() {
-        // Build comma-separated field names from current preview
-        const fieldsCsv = this.piiPreview.map(f => f.fieldName).join(',');
+        // Build field:maskType CSV — only include mask override if not 'auto'
+        const fieldsCsv = this.piiPreview.map(f => {
+            const mask = f.selectedMask || 'auto';
+            return mask === 'auto' ? f.fieldName : `${f.fieldName}:${mask}`;
+        }).join(',');
 
         addObjectConfig({ objectName: this.selectedObject, fieldsCsv: fieldsCsv })
             .then(message => {
@@ -275,6 +299,29 @@ export default class PiiMaskingDashboard extends LightningElement {
             .catch(e => {
                 this.showToast('error', 'Error: ' + (e.body ? e.body.message : e.message));
             });
+    }
+
+    downloadCsv() {
+        if (!this.jobHistory || this.jobHistory.length === 0) return;
+        const headers = ['Log#', 'Object', 'Status', 'Records Processed', 'Records Failed', 'Fields Masked', 'Error Details', 'Completed Date'];
+        const rows = this.jobHistory.map(j => [
+            j.id || '',
+            j.objectName || '',
+            j.status || '',
+            j.recordsProcessed || 0,
+            j.recordsFailed || 0,
+            `"${(j.fieldsMasked || '').replace(/"/g, '""')}"`,
+            `"${(j.errorDetails || '').replace(/"/g, '""')}"`,
+            j.completedDate || ''
+        ]);
+        const csv = [headers.join(','), ...rows.map(r => r.join(','))].join('\n');
+        const blob = new Blob([csv], { type: 'text/csv' });
+        const url = URL.createObjectURL(blob);
+        const a = document.createElement('a');
+        a.href = url;
+        a.download = `pii_masking_history_${new Date().toISOString().slice(0, 10)}.csv`;
+        a.click();
+        URL.revokeObjectURL(url);
     }
 
     showToast(variant, message) {
