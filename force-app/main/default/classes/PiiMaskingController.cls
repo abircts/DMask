@@ -16,7 +16,7 @@ public with sharing class PiiMaskingController {
         return null;
     }
 
-    @AuraEnabled(cacheable=true)
+    @AuraEnabled
     public static List<Map<String, Object>> getConfigs() {
         List<Map<String, Object>> result = new List<Map<String, Object>>();
         for (PII_Mask_Config__mdt config : [

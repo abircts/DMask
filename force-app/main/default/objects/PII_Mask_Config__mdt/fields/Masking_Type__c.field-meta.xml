@@ -12,8 +12,13 @@
         <valueSetDefinition>
             <sorted>false</sorted>
             <value>
-                <fullName>Static</fullName>
+                <fullName>Auto</fullName>
                 <default>true</default>
+                <label>Auto</label>
+            </value>
+            <value>
+                <fullName>Static</fullName>
+                <default>false</default>
                 <label>Static</label>
             </value>
             <value>
