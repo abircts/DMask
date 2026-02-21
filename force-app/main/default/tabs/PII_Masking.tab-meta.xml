@@ -2,5 +2,5 @@
 <CustomTab xmlns="http://soap.sforce.com/2006/04/metadata">
     <label>PII Masking</label>
     <lwcComponent>piiMaskingDashboard</lwcComponent>
-    <motif>Custom90: Wrench</motif>
+    <motif>Custom20: Diamond</motif>
 </CustomTab>
