@@ -1,0 +1,122 @@
+<template>
+    <div class="slds-card slds-var-m-around_medium dashboard-container">
+        <!-- Header -->
+        <div class="slds-card__header slds-grid header-bar">
+            <div class="slds-media slds-media_center slds-has-flexi-truncate">
+                <div class="slds-media__figure">
+                    <lightning-icon icon-name="standard:data_masking" size="medium"></lightning-icon>
+                </div>
+                <div class="slds-media__body">
+                    <h2 class="slds-card__header-title slds-text-heading_medium header-title">
+                        PII Data Masking Dashboard
+                    </h2>
+                    <p class="slds-text-body_small slds-text-color_weak">Mask sensitive data in your Sandbox environment</p>
+                </div>
+            </div>
+            <div class="slds-no-flex">
+                <lightning-button
+                    variant="brand"
+                    label="Run Masking"
+                    icon-name="utility:play"
+                    onclick={handleStartMasking}
+                    disabled={isRunning}
+                    class="run-button">
+                </lightning-button>
+            </div>
+        </div>
+
+        <!-- Active Jobs -->
+        <div class="slds-card__body slds-card__body_inner">
+            <template if:true={hasActiveJobs}>
+                <div class="slds-section slds-is-open slds-var-m-bottom_medium">
+                    <h3 class="slds-section__title slds-theme_shade section-header">
+                        <span class="slds-truncate slds-var-p-horizontal_small">
+                            <lightning-icon icon-name="utility:spinner" size="x-small" class="slds-var-m-right_x-small"></lightning-icon>
+                            Active Jobs
+                        </span>
+                    </h3>
+                    <div class="slds-section__content">
+                        <template for:each={activeJobs} for:item="job">
+                            <div key={job.id} class="slds-box slds-box_x-small slds-var-m-bottom_small job-card active-job-card">
+                                <div class="slds-grid slds-grid_align-spread slds-var-m-bottom_x-small">
+                                    <div>
+                                        <lightning-badge label={job.status} class="status-badge"></lightning-badge>
+                                    </div>
+                                    <div class="slds-text-body_small slds-text-color_weak">
+                                        {job.processed} / {job.total} batches
+                                    </div>
+                                </div>
+                                <lightning-progress-bar value={job.progress} size="medium" variant="circular"></lightning-progress-bar>
+                                <div class="slds-text-align_right slds-text-body_small slds-var-m-top_xx-small">
+                                    {job.progress}% complete
+                                </div>
+                            </div>
+                        </template>
+                    </div>
+                </div>
+            </template>
+
+            <!-- Configs -->
+            <div class="slds-section slds-is-open slds-var-m-bottom_medium">
+                <h3 class="slds-section__title slds-theme_shade section-header">
+                    <span class="slds-truncate slds-var-p-horizontal_small">
+                        <lightning-icon icon-name="utility:settings" size="x-small" class="slds-var-m-right_x-small"></lightning-icon>
+                        Masking Configuration
+                    </span>
+                </h3>
+                <div class="slds-section__content">
+                    <template if:true={hasConfigs}>
+                        <lightning-datatable
+                            key-field="id"
+                            data={configs}
+                            columns={configColumns}
+                            hide-checkbox-column
+                            class="config-table">
+                        </lightning-datatable>
+                    </template>
+                    <template if:false={hasConfigs}>
+                        <div class="slds-illustration slds-illustration_small slds-var-p-around_medium slds-text-align_center">
+                            <p class="slds-text-body_regular slds-text-color_weak">
+                                No masking configurations found. Create <strong>PII Mask Config</strong> custom metadata records in Setup.
+                            </p>
+                        </div>
+                    </template>
+                </div>
+            </div>
+
+            <!-- Job History -->
+            <div class="slds-section slds-is-open">
+                <h3 class="slds-section__title slds-theme_shade section-header">
+                    <span class="slds-truncate slds-var-p-horizontal_small">
+                        <lightning-icon icon-name="utility:date_time" size="x-small" class="slds-var-m-right_x-small"></lightning-icon>
+                        Job History
+                    </span>
+                </h3>
+                <div class="slds-section__content">
+                    <template if:true={hasHistory}>
+                        <lightning-datatable
+                            key-field="id"
+                            data={jobHistory}
+                            columns={historyColumns}
+                            hide-checkbox-column
+                            class="history-table">
+                        </lightning-datatable>
+                    </template>
+                    <template if:false={hasHistory}>
+                        <div class="slds-var-p-around_medium slds-text-align_center">
+                            <p class="slds-text-body_regular slds-text-color_weak">No job history yet.</p>
+                        </div>
+                    </template>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <!-- Toast-like notification -->
+    <template if:true={toastMessage}>
+        <div class={toastClass}>
+            <lightning-icon icon-name={toastIcon} size="x-small" class="slds-var-m-right_small"></lightning-icon>
+            {toastMessage}
+        </div>
+    </template>
+</template>
