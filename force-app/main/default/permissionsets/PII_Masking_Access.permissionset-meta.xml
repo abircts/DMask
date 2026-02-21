@@ -1,0 +1,18 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<PermissionSet xmlns="http://soap.sforce.com/2006/04/metadata">
+    <label>PII Masking Access</label>
+    <description>Grants access to the PII Masking Dashboard tab and related classes</description>
+    <hasActivationRequired>false</hasActivationRequired>
+    <tabSettings>
+        <tab>PII_Masking</tab>
+        <visibility>Visible</visibility>
+    </tabSettings>
+    <classAccesses>
+        <apexClass>PiiMaskingController</apexClass>
+        <enabled>true</enabled>
+    </classAccesses>
+    <classAccesses>
+        <apexClass>SandboxDataMasker</apexClass>
+        <enabled>true</enabled>
+    </classAccesses>
+</PermissionSet>
