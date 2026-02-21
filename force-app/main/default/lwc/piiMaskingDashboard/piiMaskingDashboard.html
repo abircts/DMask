@@ -294,7 +294,7 @@
                 <div class="slds-modal__content slds-var-p-around_medium">
                     <div class="slds-var-m-bottom_medium">
                         <lightning-combobox label="Select Object to Preview" value={previewObjectName}
-                            options={objectOptions} onchange={handlePreviewObjectSelect}
+                            options={previewObjectOptions} onchange={handlePreviewObjectSelect}
                             placeholder="Choose an object...">
                         </lightning-combobox>
                     </div>
@@ -352,6 +352,31 @@
                 </div>
                 <footer class="slds-modal__footer">
                     <lightning-button label="Close" onclick={handleClosePreviewModal}></lightning-button>
+                </footer>
+            </div>
+        </section>
+        <div class="slds-backdrop slds-backdrop_open"></div>
+    </template>
+
+    <!-- Confirmation Dialog -->
+    <template if:true={showConfirmModal}>
+        <section class="slds-modal slds-fade-in-open">
+            <div class="slds-modal__container" style="max-width:500px">
+                <header class="slds-modal__header slds-theme_warning">
+                    <button class="slds-button slds-button_icon slds-modal__close slds-button_icon-inverse"
+                        onclick={handleConfirmNo}>
+                        <lightning-icon icon-name="utility:close" size="small" variant="inverse"></lightning-icon>
+                    </button>
+                    <h2 class="slds-modal__title slds-hyphenate">{confirmTitle}</h2>
+                </header>
+                <div class="slds-modal__content slds-var-p-around_medium">
+                    <p class="slds-text-body_regular">{confirmMessage}</p>
+                </div>
+                <footer class="slds-modal__footer">
+                    <lightning-button label="Cancel" onclick={handleConfirmNo}
+                        class="slds-var-m-right_small"></lightning-button>
+                    <lightning-button variant="destructive" label="Yes, Proceed"
+                        onclick={handleConfirmYes}></lightning-button>
                 </footer>
             </div>
         </section>

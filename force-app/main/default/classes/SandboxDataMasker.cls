@@ -1,4 +1,5 @@
-public class SandboxDataMasker implements Database.Batchable<sObject>, Database.Stateful {
+// Intentionally 'without sharing' — masking requires system-level access to all records
+public without sharing class SandboxDataMasker implements Database.Batchable<sObject>, Database.Stateful {
     
     private List<String> objectsToProcess;
     private String currentObject;
@@ -70,7 +71,8 @@ public class SandboxDataMasker implements Database.Batchable<sObject>, Database.
             return null;
         }
         
-        this.currentObject = objectsToProcess[0];
+        // Validate object name against schema (prevents SOQL injection)
+        this.currentObject = PiiFieldDetector.validateObjectName(objectsToProcess[0]);
         this.recordsProcessed = 0;
         this.recordsFailed = 0;
         this.errors = new List<String>();
@@ -83,20 +85,12 @@ public class SandboxDataMasker implements Database.Batchable<sObject>, Database.
             return Database.getQueryLocator(query);
         }
         
-        Set<String> fieldNames = new Set<String>{'Id'};
-        for (FieldMaskInfo info : fieldsToMask) {
-            fieldNames.add(info.fieldName);
-        }
+        // Build safe query with validated field names
+        String query = PiiFieldDetector.buildSafeQuery(currentObject, fieldsToMask);
         
-        String query = 'SELECT ' + String.join(new List<String>(fieldNames), ',') + ' FROM ' + currentObject;
-        
-        // If retry mode, filter to specific record IDs
+        // If retry mode, filter to specific record IDs using bind variable (safe)
         if (isRetry && retryRecordIds != null && !retryRecordIds.isEmpty()) {
-            List<String> idStrings = new List<String>();
-            for (Id rid : retryRecordIds) {
-                idStrings.add('\'' + String.valueOf(rid) + '\'');
-            }
-            query += ' WHERE Id IN (' + String.join(idStrings, ',') + ')';
+            query += ' WHERE Id IN :retryRecordIds';
         }
         
         return Database.getQueryLocator(query);
@@ -247,74 +241,10 @@ public class SandboxDataMasker implements Database.Batchable<sObject>, Database.
         return result;
     }
 
-    // ---- Auto-detect PII fields ----
+    // ---- Auto-detect PII fields (delegates to centralized PiiFieldDetector) ----
     
     public static List<FieldMaskInfo> detectPiiFields(String objectName) {
-        List<FieldMaskInfo> result = new List<FieldMaskInfo>();
-        
-        Schema.SObjectType objType = Schema.getGlobalDescribe().get(objectName);
-        if (objType == null) return result;
-        
-        Map<String, Schema.SObjectField> fields = objType.getDescribe().fields.getMap();
-        
-        Map<String, String> namePatterns = new Map<String, String>{
-            'email' => 'email', 'phone' => 'phone', 'fax' => 'phone',
-            'mobilephone' => 'phone', 'homephone' => 'phone', 'otherphone' => 'phone',
-            'firstname' => 'name', 'lastname' => 'name', 'middlename' => 'name',
-            'name' => 'name', 'title' => 'name',
-            'street' => 'address', 'city' => 'address', 'state' => 'address',
-            'postalcode' => 'address', 'zip' => 'address', 'country' => 'address',
-            'mailingstreet' => 'address', 'mailingcity' => 'address',
-            'mailingstate' => 'address', 'mailingpostalcode' => 'address',
-            'mailingcountry' => 'address', 'otherstreet' => 'address',
-            'othercity' => 'address', 'otherstate' => 'address',
-            'otherpostalcode' => 'address', 'othercountry' => 'address',
-            'billingstreet' => 'address', 'billingcity' => 'address',
-            'billingstate' => 'address', 'billingpostalcode' => 'address',
-            'billingcountry' => 'address', 'shippingstreet' => 'address',
-            'shippingcity' => 'address', 'shippingstate' => 'address',
-            'shippingpostalcode' => 'address', 'shippingcountry' => 'address',
-            'birthdate' => 'date', 'dateofbirth' => 'date',
-            'ssn' => 'text', 'socialsecurity' => 'text', 'taxid' => 'text',
-            'description' => 'text', 'website' => 'url'
-        };
-        
-        for (String fieldKey : fields.keySet()) {
-            Schema.DescribeFieldResult fd = fields.get(fieldKey).getDescribe();
-            
-            if (!fd.isUpdateable() || !fd.isAccessible()) continue;
-            if (fd.isCalculated() || fd.isAutoNumber()) continue;
-            
-            String apiName = fd.getName();
-            String lowerName = apiName.toLowerCase();
-            String category = null;
-            
-            if (fd.getType() == Schema.DisplayType.EMAIL) {
-                category = 'email';
-            } else if (fd.getType() == Schema.DisplayType.PHONE) {
-                category = 'phone';
-            } else if (fd.getType() == Schema.DisplayType.URL) {
-                category = 'url';
-            } else {
-                String cleanName = lowerName.replace('__c', '');
-                if (namePatterns.containsKey(cleanName)) {
-                    category = namePatterns.get(cleanName);
-                } else {
-                    for (String pattern : namePatterns.keySet()) {
-                        if (cleanName.contains(pattern)) {
-                            category = namePatterns.get(pattern);
-                            break;
-                        }
-                    }
-                }
-            }
-            
-            if (category != null) {
-                result.add(new FieldMaskInfo(apiName, fd.getType(), category));
-            }
-        }
-        
-        return result;
+        return PiiFieldDetector.detectPiiFields(objectName);
     }
 
     // ---- Smart masking by PII category (with override support) ----

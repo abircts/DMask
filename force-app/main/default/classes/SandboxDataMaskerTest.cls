@@ -52,4 +52,103 @@ private class SandboxDataMaskerTest {
         System.assertNotEquals('lead@example.com', lUpdated.Email, 'Lead email should be masked');
         System.assert(lUpdated.Email.startsWith('Masked_'), 'Lead email should start with Masked_');
     }
+    
+    @isTest
+    static void testAllMaskingStrategies() {
+        Contact c = new Contact(
+            LastName = 'StrategyTest',
+            Email = 'strat@example.com',
+            Phone = '555-111-2222',
+            FirstName = 'TestFirst',
+            MailingStreet = '123 Test Ave'
+        );
+        insert c;
+        
+        // Test auto-detect (no mock configs = use detectPiiFields path)
+        SandboxDataMasker masker = new SandboxDataMasker(new List<String>{ 'Contact' });
+        List<SandboxDataMasker.FieldMaskInfo> fields = SandboxDataMasker.detectPiiFields('Contact');
+        System.assert(!fields.isEmpty(), 'Should auto-detect PII fields on Contact');
+        
+        // Test simulateMask for email
+        SandboxDataMasker.FieldMaskInfo emailInfo = null;
+        for (SandboxDataMasker.FieldMaskInfo f : fields) {
+            if (f.fieldName == 'Email') { emailInfo = f; break; }
+        }
+        if (emailInfo != null) {
+            sObject clone = c.clone(true, true, true, true);
+            masker.simulateMask(clone, emailInfo);
+            System.assertNotEquals('strat@example.com', clone.get('Email'), 'Email should be masked');
+        }
+    }
+    
+    @isTest
+    static void testRegexMasking() {
+        Contact c = new Contact(LastName = 'RegexTest', Email = 'regex@example.com');
+        insert c;
+        
+        // Create FieldMaskInfo with regex override
+        SandboxDataMasker.FieldMaskInfo info = new SandboxDataMasker.FieldMaskInfo('Email', Schema.DisplayType.EMAIL, 'email');
+        info.maskOverride = 'Regex';
+        info.regexPattern = '[a-zA-Z]+@';
+        
+        SandboxDataMasker masker = new SandboxDataMasker(new List<String>());
+        sObject clone = c.clone(true, true, true, true);
+        masker.simulateMask(clone, info);
+        
+        String masked = (String)clone.get('Email');
+        System.assertNotEquals('regex@example.com', masked, 'Regex should mask email');
+        System.assert(masked.contains('***'), 'Should contain masked token');
+    }
+    
+    @isTest
+    static void testRegexMasking_NoPattern() {
+        Contact c = new Contact(LastName = 'RegexNone', Email = 'nopattern@example.com');
+        insert c;
+        
+        // Regex override without a pattern => falls back to generic masking
+        SandboxDataMasker.FieldMaskInfo info = new SandboxDataMasker.FieldMaskInfo('Email', Schema.DisplayType.EMAIL, 'email');
+        info.maskOverride = 'Regex';
+        info.regexPattern = null;
+        
+        SandboxDataMasker masker = new SandboxDataMasker(new List<String>());
+        sObject clone = c.clone(true, true, true, true);
+        masker.simulateMask(clone, info);
+        
+        String masked = (String)clone.get('Email');
+        System.assert(masked.startsWith('MASKED_'), 'Should fallback to MASKED_ prefix');
+    }
+    
+    @isTest
+    static void testRetryConstructor() {
+        Contact c = new Contact(LastName = 'RetryTest', Email = 'retry@example.com');
+        insert c;
+        
+        Set<Id> retryIds = new Set<Id>{ c.Id };
+        SandboxDataMasker masker = new SandboxDataMasker('Contact', retryIds);
+        System.assertNotEquals(null, masker, 'Retry constructor should work');
+    }
+    
+    @isTest
+    static void testFieldMaskInfo() {
+        SandboxDataMasker.FieldMaskInfo info = new SandboxDataMasker.FieldMaskInfo('TestField__c', Schema.DisplayType.STRING, 'name');
+        System.assertEquals('TestField__c', info.fieldName);
+        System.assertEquals(Schema.DisplayType.STRING, info.fieldType);
+        System.assertEquals('name', info.piiCategory);
+        System.assertEquals(null, info.maskOverride);
+        System.assertEquals(null, info.regexPattern);
+    }
+    
+    @isTest
+    static void testSimulateMask_NullValue() {
+        Contact c = new Contact(LastName = 'NullTest'); // Email is null
+        insert c;
+        
+        SandboxDataMasker.FieldMaskInfo info = new SandboxDataMasker.FieldMaskInfo('Email', Schema.DisplayType.EMAIL, 'email');
+        SandboxDataMasker masker = new SandboxDataMasker(new List<String>());
+        
+        sObject clone = c.clone(true, true, true, true);
+        masker.simulateMask(clone, info);
+        
+        System.assertEquals(null, clone.get('Email'), 'Null email should remain null');
+    }
 }

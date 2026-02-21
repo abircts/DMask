@@ -1,9 +1,9 @@
 public with sharing class PiiMaskingController {
 
-    // ---- Sandbox Guard ----
+    // ---- Sandbox Guard (cached via PiiFieldDetector) ----
     
     private static Boolean isSandbox() {
-        return [SELECT IsSandbox FROM Organization LIMIT 1].IsSandbox;
+        return PiiFieldDetector.isSandbox();
     }
     
     @AuraEnabled(cacheable=true)
@@ -175,7 +175,7 @@ public with sharing class PiiMaskingController {
     @AuraEnabled(cacheable=true)
     public static List<Map<String, String>> getObjects() {
         List<Map<String, String>> result = new List<Map<String, String>>();
-        Map<String, Schema.SObjectType> globalDescribe = Schema.getGlobalDescribe();
+        Map<String, Schema.SObjectType> globalDescribe = PiiFieldDetector.getGlobalDescribe();
         
         Map<String, Map<String, String>> sorted = new Map<String, Map<String, String>>();
         List<String> labels = new List<String>();
@@ -232,12 +232,8 @@ public with sharing class PiiMaskingController {
         List<SandboxDataMasker.FieldMaskInfo> fields = SandboxDataMasker.detectPiiFields(objectName);
         if (fields.isEmpty()) return result;
         
-        // Build query for sample records
-        Set<String> fieldNames = new Set<String>{'Id'};
-        for (SandboxDataMasker.FieldMaskInfo info : fields) {
-            fieldNames.add(info.fieldName);
-        }
-        String query = 'SELECT ' + String.join(new List<String>(fieldNames), ',') + ' FROM ' + objectName + ' LIMIT 5';
+        // Build safe query using validated object/field names
+        String query = PiiFieldDetector.buildSafeQuery(objectName, fields) + ' LIMIT 5';
         List<sObject> records = Database.query(query);
         
         for (sObject rec : records) {

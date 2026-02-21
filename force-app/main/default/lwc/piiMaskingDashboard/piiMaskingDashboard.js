@@ -81,7 +81,9 @@ const CATEGORY_BADGES = {
     text: 'badge-text'
 };
 
-const POLL_INTERVAL = 5000;
+const POLL_ACTIVE_INTERVAL = 5000;
+const POLL_IDLE_INTERVAL = 30000;
+const POLL_STOP_AFTER = 300000; // 5 minutes
 
 export default class PiiMaskingDashboard extends LightningElement {
     @track activeJobs = [];
@@ -124,6 +126,14 @@ export default class PiiMaskingDashboard extends LightningElement {
     historyColumns = HISTORY_COLUMNS;
     maskingOptions = MASKING_OPTIONS;
     _pollTimer;
+    _pollStartTime;
+    _currentPollInterval;
+
+    // Confirmation dialog
+    @track showConfirmModal = false;
+    @track confirmTitle = '';
+    @track confirmMessage = '';
+    _confirmCallback = null;
 
     get hasActiveJobs() { return this.activeJobs && this.activeJobs.length > 0; }
     get hasConfigs() { return this.configs && this.configs.length > 0; }
@@ -160,11 +170,43 @@ export default class PiiMaskingDashboard extends LightningElement {
     }
 
     startPolling() {
+        this._pollStartTime = Date.now();
+        this._adjustPolling();
+    }
+
+    _adjustPolling() {
+        if (this._pollTimer) clearInterval(this._pollTimer);
+
+        // Stop polling after 5 minutes of no activity
+        const elapsed = Date.now() - (this._pollStartTime || Date.now());
+        if (elapsed > POLL_STOP_AFTER && !this.hasActiveJobs) return;
+
+        const interval = this.hasActiveJobs ? POLL_ACTIVE_INTERVAL : POLL_IDLE_INTERVAL;
+        this._currentPollInterval = interval;
+
         // eslint-disable-next-line @lwc/lwc/no-async-operation
         this._pollTimer = setInterval(() => {
             this.loadActiveJobs();
             this.loadJobHistory();
-        }, POLL_INTERVAL);
+
+            // Re-evaluate polling speed when job state changes
+            const expectedInterval = this.hasActiveJobs ? POLL_ACTIVE_INTERVAL : POLL_IDLE_INTERVAL;
+            if (expectedInterval !== this._currentPollInterval) {
+                this._adjustPolling();
+            }
+
+            // Stop completely after timeout if idle
+            const totalElapsed = Date.now() - (this._pollStartTime || Date.now());
+            if (totalElapsed > POLL_STOP_AFTER && !this.hasActiveJobs) {
+                this.stopPolling();
+            }
+        }, interval);
+    }
+
+    // Reset poll timer when user takes an action
+    _resetPolling() {
+        this._pollStartTime = Date.now();
+        this._adjustPolling();
     }
 
     stopPolling() { if (this._pollTimer) clearInterval(this._pollTimer); }
@@ -368,10 +410,19 @@ export default class PiiMaskingDashboard extends LightningElement {
         this.previewData = [];
         this.previewObjectName = '';
         this.showPreviewModal = true;
-        if (this.objectOptions.length === 0) {
-            getObjects().then(result => { this.objectOptions = result; })
+        // Default to configured objects, fall back to all objects
+        if (this.configs && this.configs.length > 0) {
+            this._previewObjectOptions = this.configs.map(c => ({ value: c.objectName, label: c.objectName }));
+        } else if (this.objectOptions.length === 0) {
+            getObjects().then(result => { this._previewObjectOptions = result; })
                 .catch(e => this.showToast('error', 'Error loading objects: ' + (e.body ? e.body.message : e.message)));
+        } else {
+            this._previewObjectOptions = this.objectOptions;
         }
+    }
+
+    get previewObjectOptions() {
+        return this._previewObjectOptions || this.objectOptions;
     }
 
     handlePreviewObjectSelect(event) {
@@ -404,16 +455,45 @@ export default class PiiMaskingDashboard extends LightningElement {
     // ---- File/Attachment Masking ----
 
     handleStartFileMasking() {
-        startFileMasking()
-            .then(jobId => {
-                if (jobId) {
-                    this.showToast('success', 'File masking started! Job ID: ' + jobId);
-                    this.loadActiveJobs();
-                }
-            })
-            .catch(e => {
-                this.showToast('error', 'Error: ' + (e.body ? e.body.message : e.message));
-            });
+        this._showConfirm(
+            'Mask Files — Confirm',
+            '⚠️ This will scan and mask PII in ALL text-based files (CSV, TXT, JSON, XML, etc.) under 5MB. File titles will also be cleaned. This action CANNOT be undone. Proceed?',
+            () => {
+                startFileMasking()
+                    .then(jobId => {
+                        if (jobId) {
+                            this.showToast('success', 'File masking started! Job ID: ' + jobId);
+                            this.loadActiveJobs();
+                            this._resetPolling();
+                        }
+                    })
+                    .catch(e => {
+                        this.showToast('error', 'Error: ' + (e.body ? e.body.message : e.message));
+                    });
+            }
+        );
+    }
+
+    // ---- Confirmation dialog helpers ----
+
+    _showConfirm(title, message, callback) {
+        this.confirmTitle = title;
+        this.confirmMessage = message;
+        this._confirmCallback = callback;
+        this.showConfirmModal = true;
+    }
+
+    handleConfirmYes() {
+        this.showConfirmModal = false;
+        if (this._confirmCallback) {
+            this._confirmCallback();
+            this._confirmCallback = null;
+        }
+    }
+
+    handleConfirmNo() {
+        this.showConfirmModal = false;
+        this._confirmCallback = null;
     }
 
     // ---- Regex Pattern ----

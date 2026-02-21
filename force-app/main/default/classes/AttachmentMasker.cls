@@ -1,17 +1,9 @@
-public class AttachmentMasker implements Database.Batchable<sObject>, Database.Stateful {
-    
-    // PII patterns for scanning text-based file content
-    private static final Map<String, String> PII_PATTERNS = new Map<String, String>{
-        'email' => '[a-zA-Z0-9._%+-]+@[a-zA-Z0-9.-]+\\.[a-zA-Z]{2,}',
-        'phone' => '(\\+?\\d{1,3}[-.\\s]?)?\\(?\\d{2,4}\\)?[-.\\s]?\\d{3,4}[-.\\s]?\\d{3,4}',
-        'ssn' => '\\d{3}-\\d{2}-\\d{4}',
-        'creditcard' => '\\d{4}[-.\\s]?\\d{4}[-.\\s]?\\d{4}[-.\\s]?\\d{4}'
-    };
-    
-    // Text-based file extensions to scan
-    private static final Set<String> TEXT_EXTENSIONS = new Set<String>{
-        'txt', 'csv', 'log', 'json', 'xml', 'html', 'htm', 'md', 'rtf', 'sql'
-    };
+/**
+ * Batch class that masks PII in file titles and text-based file content.
+ * Delegates to PiiFieldDetector for shared PII patterns and text file detection.
+ * Intentionally 'without sharing' for system-level file access.
+ */
+public without sharing class AttachmentMasker implements Database.Batchable<sObject>, Database.Stateful {
     
     // Result tracking
     private Integer filesProcessed = 0;
@@ -31,19 +23,30 @@ public class AttachmentMasker implements Database.Batchable<sObject>, Database.S
     }
     
     public Database.QueryLocator start(Database.BatchableContext bc) {
-        // SANDBOX GUARD
-        Boolean isSandbox = [SELECT IsSandbox FROM Organization LIMIT 1].IsSandbox;
-        if (!isSandbox) {
+        // SANDBOX GUARD (cached)
+        if (!PiiFieldDetector.isSandbox()) {
             System.debug('BLOCKED: AttachmentMasker can only run in sandbox orgs.');
             return Database.getQueryLocator('SELECT Id FROM ContentVersion WHERE Id = null');
         }
         
-        return Database.getQueryLocator([
-            SELECT Id, Title, FileExtension, VersionData, ContentSize 
-            FROM ContentVersion 
-            WHERE IsLatest = true 
-            AND ContentSize < 5000000
-        ]);
+        // Build text-extension filter to avoid loading binary file bodies into heap
+        List<String> extFilters = new List<String>();
+        for (String ext : PiiFieldDetector.TEXT_FILE_EXTENSIONS) {
+            extFilters.add('\'' + String.escapeSingleQuotes(ext) + '\'');
+        }
+        String extClause = String.join(extFilters, ',');
+        
+        String query = 'SELECT Id, Title, FileExtension, VersionData, ContentSize '
+            + 'FROM ContentVersion '
+            + 'WHERE IsLatest = true '
+            + 'AND ContentSize < 5000000';
+        
+        // Only load VersionData for text-based files (performance: avoids loading binary blobs)
+        if (maskContent) {
+            query += ' AND (FileExtension IN (' + extClause + ') OR FileExtension = null)';
+        }
+        
+        return Database.getQueryLocator(query);
     }
     
     public void execute(Database.BatchableContext bc, List<ContentVersion> scope) {
@@ -55,7 +58,7 @@ public class AttachmentMasker implements Database.Batchable<sObject>, Database.S
                 
                 // 1. Mask file title (remove PII from filenames)
                 if (maskTitles && String.isNotBlank(cv.Title)) {
-                    String maskedTitle = maskPiiInText(cv.Title);
+                    String maskedTitle = PiiFieldDetector.maskPiiInText(cv.Title);
                     if (maskedTitle != cv.Title) {
                         cv.Title = maskedTitle;
                         changed = true;
@@ -63,10 +66,10 @@ public class AttachmentMasker implements Database.Batchable<sObject>, Database.S
                 }
                 
                 // 2. Mask file content (text-based files only)
-                if (maskContent && isTextFile(cv.FileExtension) && cv.VersionData != null) {
+                if (maskContent && PiiFieldDetector.isTextFile(cv.FileExtension) && cv.VersionData != null) {
                     try {
                         String content = cv.VersionData.toString();
-                        String maskedContent = maskPiiInText(content);
+                        String maskedContent = PiiFieldDetector.maskPiiInText(content);
                         if (maskedContent != content) {
                             cv.VersionData = Blob.valueOf(maskedContent);
                             changed = true;
@@ -132,23 +135,5 @@ public class AttachmentMasker implements Database.Batchable<sObject>, Database.S
         } catch (Exception e) {
             System.debug('Error creating attachment mask log: ' + e.getMessage());
         }
-    }
-    
-    // ---- PII masking in text ----
-    
-    private String maskPiiInText(String text) {
-        if (String.isBlank(text)) return text;
-        
-        String result = text;
-        for (String category : PII_PATTERNS.keySet()) {
-            String pattern = PII_PATTERNS.get(category);
-            result = result.replaceAll(pattern, '***');
-        }
-        return result;
-    }
-    
-    private Boolean isTextFile(String ext) {
-        if (String.isBlank(ext)) return false;
-        return TEXT_EXTENSIONS.contains(ext.toLowerCase());
     }
 }
