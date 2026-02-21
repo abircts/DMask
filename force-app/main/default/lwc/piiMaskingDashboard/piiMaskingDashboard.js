@@ -315,13 +315,14 @@ export default class PiiMaskingDashboard extends LightningElement {
             j.completedDate || ''
         ]);
         const csv = [headers.join(','), ...rows.map(r => r.join(','))].join('\n');
-        const blob = new Blob([csv], { type: 'text/csv' });
-        const url = URL.createObjectURL(blob);
+        // Use data URI instead of Blob to avoid Locker Service MIME type error
+        const encodedCsv = encodeURIComponent(csv);
         const a = document.createElement('a');
-        a.href = url;
+        a.href = 'data:text/csv;charset=utf-8,' + encodedCsv;
         a.download = `pii_masking_history_${new Date().toISOString().slice(0, 10)}.csv`;
+        document.body.appendChild(a);
         a.click();
-        URL.revokeObjectURL(url);
+        document.body.removeChild(a);
     }
 
     showToast(variant, message) {
