@@ -7,6 +7,7 @@ import getObjects from '@salesforce/apex/PiiMaskingController.getObjects';
 import previewPiiFields from '@salesforce/apex/PiiMaskingController.previewPiiFields';
 import addObjectConfig from '@salesforce/apex/PiiMaskingController.addObjectConfig';
 import removeConfig from '@salesforce/apex/PiiMaskingController.removeConfig';
+import retryFailed from '@salesforce/apex/PiiMaskingController.retryFailed';
 
 const CONFIG_COLUMNS = [
     { label: 'Object', fieldName: 'objectName', type: 'text', initialWidth: 180 },
@@ -33,6 +34,12 @@ const HISTORY_COLUMNS = [
     {
         label: 'Completed', fieldName: 'completedDate', type: 'date',
         typeAttributes: { year: 'numeric', month: 'short', day: '2-digit', hour: '2-digit', minute: '2-digit' }
+    },
+    {
+        type: 'action',
+        typeAttributes: {
+            rowActions: [{ label: 'Retry Failed', name: 'retry', iconName: 'utility:refresh' }]
+        }
     }
 ];
 
@@ -172,6 +179,27 @@ export default class PiiMaskingDashboard extends LightningElement {
                     (job.status === 'Failed' || job.status === 'Partial') ? 'slds-text-color_error' : ''
             }));
         }).catch(e => console.error('Error loading job history', e));
+    }
+
+    handleHistoryAction(event) {
+        const action = event.detail.action.name;
+        const row = event.detail.row;
+        if (action === 'retry') {
+            if (!row.hasFailures) {
+                this.showToast('info', 'No failed records to retry for this log entry.');
+                return;
+            }
+            retryFailed({ logName: row.id })
+                .then(jobId => {
+                    if (jobId) {
+                        this.showToast('success', 'Retry started for ' + row.objectName + '! Job ID: ' + jobId);
+                        this.loadActiveJobs();
+                    }
+                })
+                .catch(e => {
+                    this.showToast('error', 'Retry error: ' + (e.body ? e.body.message : e.message));
+                });
+        }
     }
 
     handleStartMasking() {

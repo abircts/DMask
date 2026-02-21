@@ -8,6 +8,11 @@ public class SandboxDataMasker implements Database.Batchable<sObject>, Database.
     private Integer recordsProcessed = 0;
     private Integer recordsFailed = 0;
     private List<String> errors = new List<String>();
+    private List<String> failedIds = new List<String>();
+    
+    // Retry mode: query specific record IDs instead of full table
+    private Set<Id> retryRecordIds;
+    private Boolean isRetry = false;
 
     @TestVisible private static List<PII_Mask_Config__mdt> mockConfigs;
 
@@ -28,6 +33,13 @@ public class SandboxDataMasker implements Database.Batchable<sObject>, Database.
 
     public SandboxDataMasker(List<String> objects) {
         this.objectsToProcess = objects;
+    }
+    
+    // Retry constructor: processes only specific failed record IDs for one object
+    public SandboxDataMasker(String objectName, Set<Id> recordIds) {
+        this.objectsToProcess = new List<String>{ objectName };
+        this.retryRecordIds = recordIds;
+        this.isRetry = true;
     }
 
     public static void runAll() {
@@ -75,6 +87,16 @@ public class SandboxDataMasker implements Database.Batchable<sObject>, Database.
         }
         
         String query = 'SELECT ' + String.join(new List<String>(fieldNames), ',') + ' FROM ' + currentObject;
+        
+        // If retry mode, filter to specific record IDs
+        if (isRetry && retryRecordIds != null && !retryRecordIds.isEmpty()) {
+            List<String> idStrings = new List<String>();
+            for (Id rid : retryRecordIds) {
+                idStrings.add('\'' + String.valueOf(rid) + '\'');
+            }
+            query += ' WHERE Id IN (' + String.join(idStrings, ',') + ')';
+        }
+        
         return Database.getQueryLocator(query);
     }
 
@@ -86,21 +108,30 @@ public class SandboxDataMasker implements Database.Batchable<sObject>, Database.
                 for (FieldMaskInfo info : fieldsToMask) {
                     applySmartMask(record, info);
                 }
-                recordsProcessed++;
             } catch (Exception e) {
-                recordsFailed++;
-                if (errors.size() < 10) {
+                // Field-level masking error — will still attempt update
+                if (errors.size() < 20) {
                     errors.add(record.Id + ': ' + e.getMessage());
                 }
             }
         }
         
-        try {
-            update scope;
-        } catch (Exception e) {
-            recordsFailed += scope.size();
-            if (errors.size() < 10) {
-                errors.add('Bulk update error: ' + e.getMessage());
+        // Use allOrNone=false to capture per-record update failures
+        List<Database.SaveResult> results = Database.update(scope, false);
+        for (Integer i = 0; i < results.size(); i++) {
+            if (results[i].isSuccess()) {
+                recordsProcessed++;
+            } else {
+                recordsFailed++;
+                String recId = scope[i].Id != null ? String.valueOf(scope[i].Id) : 'unknown';
+                failedIds.add(recId);
+                if (errors.size() < 20) {
+                    String errMsg = '';
+                    for (Database.Error err : results[i].getErrors()) {
+                        errMsg += err.getMessage() + '; ';
+                    }
+                    errors.add(recId + ': ' + errMsg);
+                }
             }
         }
     }
@@ -129,6 +160,12 @@ public class SandboxDataMasker implements Database.Batchable<sObject>, Database.
             if (!errors.isEmpty()) {
                 log.Error_Details__c = String.join(errors, '\n');
                 log.Status__c = 'Failed';
+            }
+            
+            // Store failed IDs for retry
+            if (!failedIds.isEmpty()) {
+                String idsStr = String.join(failedIds, ',');
+                log.Failed_Record_Ids__c = idsStr.length() > 32000 ? idsStr.substring(0, 32000) : idsStr;
             }
             
             insert log;

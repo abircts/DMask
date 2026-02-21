@@ -74,7 +74,8 @@ public with sharing class PiiMaskingController {
         List<Map<String, Object>> result = new List<Map<String, Object>>();
         for (PII_Mask_Log__c log : [
             SELECT Name, Object_Name__c, Job_Id__c, Status__c, Records_Processed__c,
-                   Records_Failed__c, Error_Details__c, Fields_Masked__c, Completed_Date__c
+                   Records_Failed__c, Error_Details__c, Fields_Masked__c, Completed_Date__c,
+                   Failed_Record_Ids__c
             FROM PII_Mask_Log__c
             ORDER BY Completed_Date__c DESC
             LIMIT 50
@@ -89,9 +90,42 @@ public with sharing class PiiMaskingController {
             row.put('errorDetails', log.Error_Details__c);
             row.put('completedDate', log.Completed_Date__c);
             row.put('jobId', log.Job_Id__c);
+            row.put('hasFailures', String.isNotBlank(log.Failed_Record_Ids__c));
             result.add(row);
         }
         return result;
+    }
+
+    @AuraEnabled
+    public static Id retryFailed(String logName) {
+        try {
+            List<PII_Mask_Log__c> logs = [
+                SELECT Object_Name__c, Failed_Record_Ids__c 
+                FROM PII_Mask_Log__c WHERE Name = :logName LIMIT 1
+            ];
+            if (logs.isEmpty() || String.isBlank(logs[0].Failed_Record_Ids__c)) {
+                throw new AuraHandledException('No failed records found for this log entry.');
+            }
+            
+            String objectName = logs[0].Object_Name__c;
+            Set<Id> failedIds = new Set<Id>();
+            for (String idStr : logs[0].Failed_Record_Ids__c.split(',')) {
+                idStr = idStr.trim();
+                if (String.isNotBlank(idStr)) {
+                    failedIds.add(Id.valueOf(idStr));
+                }
+            }
+            
+            if (failedIds.isEmpty()) {
+                throw new AuraHandledException('No valid failed record IDs found.');
+            }
+            
+            return Database.executeBatch(new SandboxDataMasker(objectName, failedIds));
+        } catch (AuraHandledException e) {
+            throw e;
+        } catch (Exception e) {
+            throw new AuraHandledException('Error retrying: ' + e.getMessage());
+        }
     }
 
     private static Map<String, Object> mapJob(AsyncApexJob job) {

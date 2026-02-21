@@ -199,7 +199,7 @@
                 <div class="slds-section__content">
                     <template if:true={hasHistory}>
                         <lightning-datatable key-field="id" data={jobHistory} columns={historyColumns}
-                            hide-checkbox-column class="history-table">
+                            hide-checkbox-column onrowaction={handleHistoryAction} class="history-table">
                         </lightning-datatable>
                     </template>
                     <template if:false={hasHistory}>
