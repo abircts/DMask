@@ -166,3 +166,12 @@
     border-radius: 6px;
     overflow: hidden;
 }
+
+/* Remove button */
+.remove-btn {
+    --sds-c-button-icon-color-foreground: #b0adab;
+}
+
+.remove-btn:hover {
+    --sds-c-button-icon-color-foreground: #c23934;
+}

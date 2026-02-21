@@ -173,6 +173,11 @@ export default class PiiMaskingDashboard extends LightningElement {
             });
     }
 
+    handleRemoveField(event) {
+        const fieldToRemove = event.currentTarget.dataset.field;
+        this.piiPreview = this.piiPreview.filter(f => f.fieldName !== fieldToRemove);
+    }
+
     handleCancelConfig() {
         this.selectedObject = '';
         this.piiPreview = [];

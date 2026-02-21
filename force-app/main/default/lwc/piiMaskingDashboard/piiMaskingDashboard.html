@@ -104,6 +104,9 @@
                                                 <th scope="col">
                                                     <div class="slds-truncate">Masking</div>
                                                 </th>
+                                                <th scope="col" style="width:50px">
+                                                    <div class="slds-truncate"></div>
+                                                </th>
                                             </tr>
                                         </thead>
                                         <tbody>
@@ -120,6 +123,12 @@
                                                             <lightning-badge label={field.maskLabel}
                                                                 class={field.badgeClass}></lightning-badge>
                                                         </div>
+                                                    </td>
+                                                    <td>
+                                                        <lightning-button-icon icon-name="utility:close"
+                                                            alternative-text="Remove" size="small" variant="bare"
+                                                            data-field={field.fieldName} onclick={handleRemoveField}
+                                                            class="remove-btn"></lightning-button-icon>
                                                     </td>
                                                 </tr>
                                             </template>
