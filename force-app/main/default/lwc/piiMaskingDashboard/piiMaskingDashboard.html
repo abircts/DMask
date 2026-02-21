@@ -55,6 +55,57 @@
                 </div>
             </template>
 
+            <!-- Add Configuration -->
+            <div class="slds-section slds-is-open slds-var-m-bottom_medium">
+                <h3 class="slds-section__title slds-theme_shade section-header">
+                    <button class="slds-button slds-section__title-action" onclick={toggleConfigForm}>
+                        <lightning-icon icon-name={configFormChevron} size="x-small"
+                            class="slds-var-m-right_x-small slds-button__icon_left"></lightning-icon>
+                        <span class="slds-truncate">
+                            <lightning-icon icon-name="utility:add" size="x-small"
+                                class="slds-var-m-right_x-small"></lightning-icon>
+                            Add Masking Configuration
+                        </span>
+                    </button>
+                </h3>
+                <template if:true={showConfigForm}>
+                    <div class="slds-section__content config-form-panel">
+                        <div class="slds-grid slds-gutters slds-wrap">
+                            <!-- Object Picker -->
+                            <div class="slds-col slds-size_1-of-2 slds-var-p-bottom_small">
+                                <lightning-combobox name="objectName" label="Object" placeholder="Select an Object..."
+                                    options={objectOptions} value={selectedObject}
+                                    onchange={handleObjectChange}></lightning-combobox>
+                            </div>
+                            <!-- Field Picker -->
+                            <div class="slds-col slds-size_1-of-2 slds-var-p-bottom_small">
+                                <lightning-combobox name="fieldName" label="Field" placeholder="Select a Field..."
+                                    options={fieldOptions} value={selectedField} onchange={handleFieldChange}
+                                    disabled={isFieldDisabled}></lightning-combobox>
+                            </div>
+                            <!-- Masking Type -->
+                            <div class="slds-col slds-size_1-of-2 slds-var-p-bottom_small">
+                                <lightning-combobox name="maskingType" label="Masking Type"
+                                    placeholder="Select Masking Type..." options={maskingTypeOptions}
+                                    value={selectedMaskingType} onchange={handleMaskingTypeChange}></lightning-combobox>
+                            </div>
+                            <!-- Pattern -->
+                            <div class="slds-col slds-size_1-of-2 slds-var-p-bottom_small">
+                                <lightning-input label="Pattern (optional)" value={configPattern}
+                                    placeholder="e.g. .invalid or MASKED" onchange={handlePatternChange}
+                                    field-level-help="For Static: the replacement value. For Suffix: appended to original."></lightning-input>
+                            </div>
+                        </div>
+                        <div class="slds-grid slds-grid_align-end slds-var-m-top_small">
+                            <lightning-button label="Cancel" onclick={handleCancelConfig}
+                                class="slds-var-m-right_small"></lightning-button>
+                            <lightning-button variant="brand" label="Save Configuration" icon-name="utility:save"
+                                onclick={handleSaveConfig} disabled={isSaveDisabled}></lightning-button>
+                        </div>
+                    </div>
+                </template>
+            </div>
+
             <!-- Configs -->
             <div class="slds-section slds-is-open slds-var-m-bottom_medium">
                 <h3 class="slds-section__title slds-theme_shade section-header">
@@ -74,8 +125,7 @@
                         <div
                             class="slds-illustration slds-illustration_small slds-var-p-around_medium slds-text-align_center">
                             <p class="slds-text-body_regular slds-text-color_weak">
-                                No masking configurations found. Create <strong>PII Mask Config</strong> custom metadata
-                                records in Setup.
+                                No masking configurations found. Use the form above to add one.
                             </p>
                         </div>
                     </template>

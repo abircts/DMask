@@ -3,6 +3,9 @@ import getActiveJobs from '@salesforce/apex/PiiMaskingController.getActiveJobs';
 import getJobHistory from '@salesforce/apex/PiiMaskingController.getJobHistory';
 import getConfigs from '@salesforce/apex/PiiMaskingController.getConfigs';
 import startMasking from '@salesforce/apex/PiiMaskingController.startMasking';
+import getObjects from '@salesforce/apex/PiiMaskingController.getObjects';
+import getFields from '@salesforce/apex/PiiMaskingController.getFields';
+import saveConfig from '@salesforce/apex/PiiMaskingController.saveConfig';
 
 const CONFIG_COLUMNS = [
     { label: 'Object', fieldName: 'objectName', type: 'text', initialWidth: 150 },
@@ -37,6 +40,12 @@ const HISTORY_COLUMNS = [
     }
 ];
 
+const MASKING_TYPE_OPTIONS = [
+    { label: 'Static — Replace with fixed value', value: 'Static' },
+    { label: 'Suffix — Append to original value', value: 'Suffix' },
+    { label: 'Random — Replace with random string', value: 'Random' }
+];
+
 const POLL_INTERVAL = 5000;
 
 export default class PiiMaskingDashboard extends LightningElement {
@@ -47,8 +56,19 @@ export default class PiiMaskingDashboard extends LightningElement {
     @track toastMessage = '';
     @track toastVariant = 'success';
 
+    // Config form state
+    @track showConfigForm = false;
+    @track objectOptions = [];
+    @track fieldOptions = [];
+    @track selectedObject = '';
+    @track selectedField = '';
+    @track selectedMaskingType = '';
+    @track configPattern = '';
+    @track isLoadingFields = false;
+
     configColumns = CONFIG_COLUMNS;
     historyColumns = HISTORY_COLUMNS;
+    maskingTypeOptions = MASKING_TYPE_OPTIONS;
     _pollTimer;
 
     get hasActiveJobs() {
@@ -69,6 +89,18 @@ export default class PiiMaskingDashboard extends LightningElement {
 
     get toastIcon() {
         return this.toastVariant === 'success' ? 'utility:success' : 'utility:error';
+    }
+
+    get configFormChevron() {
+        return this.showConfigForm ? 'utility:chevrondown' : 'utility:chevronright';
+    }
+
+    get isFieldDisabled() {
+        return !this.selectedObject || this.isLoadingFields;
+    }
+
+    get isSaveDisabled() {
+        return !this.selectedObject || !this.selectedField || !this.selectedMaskingType;
     }
 
     connectedCallback() {
@@ -152,6 +184,90 @@ export default class PiiMaskingDashboard extends LightningElement {
                 this.showToast('error', 'Error starting masking: ' + (error.body ? error.body.message : error.message));
                 this.isRunning = false;
             });
+    }
+
+    // ---- Config Form Methods ----
+
+    toggleConfigForm() {
+        this.showConfigForm = !this.showConfigForm;
+        if (this.showConfigForm && this.objectOptions.length === 0) {
+            this.loadObjects();
+        }
+    }
+
+    loadObjects() {
+        getObjects()
+            .then(result => {
+                this.objectOptions = result;
+            })
+            .catch(error => {
+                console.error('Error loading objects', error);
+                this.showToast('error', 'Error loading objects: ' + (error.body ? error.body.message : error.message));
+            });
+    }
+
+    handleObjectChange(event) {
+        this.selectedObject = event.detail.value;
+        this.selectedField = '';
+        this.fieldOptions = [];
+        this.isLoadingFields = true;
+
+        getFields({ objectName: this.selectedObject })
+            .then(result => {
+                this.fieldOptions = result;
+                this.isLoadingFields = false;
+            })
+            .catch(error => {
+                console.error('Error loading fields', error);
+                this.isLoadingFields = false;
+                this.showToast('error', 'Error loading fields: ' + (error.body ? error.body.message : error.message));
+            });
+    }
+
+    handleFieldChange(event) {
+        this.selectedField = event.detail.value;
+    }
+
+    handleMaskingTypeChange(event) {
+        this.selectedMaskingType = event.detail.value;
+    }
+
+    handlePatternChange(event) {
+        this.configPattern = event.detail.value;
+    }
+
+    handleCancelConfig() {
+        this.resetConfigForm();
+        this.showConfigForm = false;
+    }
+
+    handleSaveConfig() {
+        saveConfig({
+            objectName: this.selectedObject,
+            fieldName: this.selectedField,
+            maskingType: this.selectedMaskingType,
+            pattern: this.configPattern
+        })
+            .then(message => {
+                this.showToast('success', message);
+                this.resetConfigForm();
+                // Refresh configs after a short delay (metadata deployment is async)
+                // eslint-disable-next-line @lwc/lwc/no-async-operation
+                setTimeout(() => {
+                    this.loadConfigs();
+                }, 5000);
+            })
+            .catch(error => {
+                this.showToast('error', 'Error saving config: ' + (error.body ? error.body.message : error.message));
+            });
+    }
+
+    resetConfigForm() {
+        this.selectedObject = '';
+        this.selectedField = '';
+        this.selectedMaskingType = '';
+        this.configPattern = '';
+        this.fieldOptions = [];
     }
 
     showToast(variant, message) {
