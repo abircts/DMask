@@ -21,13 +21,15 @@ public class SandboxDataMasker implements Database.Batchable<sObject>, Database.
         public String fieldName;
         public Schema.DisplayType fieldType;
         public String piiCategory; // email, phone, name, address, date, text, url
-        public String maskOverride; // null=auto, or explicit override: Static, Random, Suffix
+        public String maskOverride; // null=auto, or explicit override: Static, Random, Suffix, Regex
+        public String regexPattern; // only used when maskOverride = 'Regex'
         
         public FieldMaskInfo(String name, Schema.DisplayType fType, String category) {
             this.fieldName = name;
             this.fieldType = fType;
             this.piiCategory = category;
             this.maskOverride = null;
+            this.regexPattern = null;
         }
     }
 
@@ -194,6 +196,7 @@ public class SandboxDataMasker implements Database.Batchable<sObject>, Database.
         
         // Parse stored fields — format: Field1:MaskType,Field2:MaskType,...
         Map<String, String> fieldOverrides = new Map<String, String>();
+        Map<String, String> regexPatterns = new Map<String, String>();
         Set<String> configuredFieldNames = new Set<String>();
         
         if (!configs.isEmpty() && String.isNotBlank(configs[0].Field_API_Name__c) 
@@ -201,9 +204,18 @@ public class SandboxDataMasker implements Database.Batchable<sObject>, Database.
             for (String entry : configs[0].Field_API_Name__c.split(',')) {
                 entry = entry.trim();
                 if (entry.contains(':')) {
-                    List<String> parts = entry.split(':');
-                    configuredFieldNames.add(parts[0].trim());
-                    fieldOverrides.put(parts[0].trim(), parts[1].trim());
+                    // Format: FieldName:MaskType or FieldName:Regex:pattern
+                    List<String> parts = entry.split(':', 3);
+                    String fName = parts[0].trim();
+                    String maskType = parts.size() > 1 ? parts[1].trim() : null;
+                    String regPat = parts.size() > 2 ? parts[2].trim() : null;
+                    configuredFieldNames.add(fName);
+                    if (maskType != null) {
+                        fieldOverrides.put(fName, maskType);
+                    }
+                    if (regPat != null) {
+                        regexPatterns.put(fName, regPat);
+                    }
                 } else {
                     configuredFieldNames.add(entry);
                 }
@@ -224,6 +236,10 @@ public class SandboxDataMasker implements Database.Batchable<sObject>, Database.
                 // Apply override if set
                 if (fieldOverrides.containsKey(info.fieldName)) {
                     info.maskOverride = fieldOverrides.get(info.fieldName);
+                }
+                // Apply regex pattern if set
+                if (regexPatterns.containsKey(info.fieldName)) {
+                    info.regexPattern = regexPatterns.get(info.fieldName);
                 }
                 result.add(info);
             }
@@ -303,6 +319,11 @@ public class SandboxDataMasker implements Database.Batchable<sObject>, Database.
 
     // ---- Smart masking by PII category (with override support) ----
     
+    // Public method for preview/dry-run (doesn't save records)
+    public void simulateMask(sObject record, FieldMaskInfo info) {
+        applySmartMask(record, info);
+    }
+    
     private void applySmartMask(sObject record, FieldMaskInfo info) {
         try {
             Object originalValue = record.get(info.fieldName);
@@ -337,6 +358,15 @@ public class SandboxDataMasker implements Database.Batchable<sObject>, Database.
                 newValue = orig.substring(0, Math.min(2, orig.length())) + '***';
             } else if (strategy == 'Random') {
                 newValue = 'RND_' + generateRandomStr(8);
+            } else if (strategy == 'Regex') {
+                // Custom regex pattern: replace matches with masked text
+                String orig = String.valueOf(originalValue);
+                String pat = info.regexPattern;
+                if (String.isNotBlank(pat)) {
+                    newValue = orig.replaceAll(pat, '***');
+                } else {
+                    newValue = 'MASKED_' + generateRandomStr(8);
+                }
             } else {
                 newValue = 'MASKED_' + generateRandomStr(8);
             }

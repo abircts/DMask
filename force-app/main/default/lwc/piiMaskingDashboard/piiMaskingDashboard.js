@@ -8,6 +8,9 @@ import previewPiiFields from '@salesforce/apex/PiiMaskingController.previewPiiFi
 import addObjectConfig from '@salesforce/apex/PiiMaskingController.addObjectConfig';
 import removeConfig from '@salesforce/apex/PiiMaskingController.removeConfig';
 import retryFailed from '@salesforce/apex/PiiMaskingController.retryFailed';
+import getOrgInfo from '@salesforce/apex/PiiMaskingController.getOrgInfo';
+import previewMasking from '@salesforce/apex/PiiMaskingController.previewMasking';
+import startFileMasking from '@salesforce/apex/PiiMaskingController.startFileMasking';
 
 const CONFIG_COLUMNS = [
     { label: 'Object', fieldName: 'objectName', type: 'text', initialWidth: 180 },
@@ -54,7 +57,8 @@ const MASKING_OPTIONS = [
     { label: '📍 Address', value: 'address' },
     { label: '📅 Date', value: 'date' },
     { label: '🔗 URL', value: 'url' },
-    { label: '🔤 Text', value: 'text' }
+    { label: '🔤 Text', value: 'text' },
+    { label: '🔧 Regex (Custom)', value: 'Regex' }
 ];
 
 const CATEGORY_LABELS = {
@@ -98,6 +102,24 @@ export default class PiiMaskingDashboard extends LightningElement {
     @track showRunModal = false;
     @track runModalItems = [];
 
+    // Org info (sandbox guard)
+    @track orgInfo = {};
+    get isSandboxOrg() { return this.orgInfo && this.orgInfo.isSandbox === true; }
+    get orgBadgeLabel() {
+        if (!this.orgInfo) return '';
+        return this.orgInfo.isSandbox ? '🟢 Sandbox' : '🔴 Production';
+    }
+    get orgBadgeClass() {
+        return this.orgInfo && this.orgInfo.isSandbox ? 'slds-badge slds-badge_inverse' : 'slds-badge slds-theme_error';
+    }
+
+    // Preview / Dry Run
+    @track previewData = [];
+    @track showPreviewModal = false;
+    @track previewObjectName = '';
+    @track isLoadingDryRun = false;
+    get hasPreviewData() { return this.previewData && this.previewData.length > 0; }
+
     configColumns = CONFIG_COLUMNS;
     historyColumns = HISTORY_COLUMNS;
     maskingOptions = MASKING_OPTIONS;
@@ -122,6 +144,7 @@ export default class PiiMaskingDashboard extends LightningElement {
     }
 
     connectedCallback() {
+        this.loadOrgInfo();
         this.loadConfigs();
         this.loadActiveJobs();
         this.loadJobHistory();
@@ -129,6 +152,12 @@ export default class PiiMaskingDashboard extends LightningElement {
     }
 
     disconnectedCallback() { this.stopPolling(); }
+
+    loadOrgInfo() {
+        getOrgInfo()
+            .then(result => { this.orgInfo = result; })
+            .catch(e => console.error('Error loading org info', e));
+    }
 
     startPolling() {
         // eslint-disable-next-line @lwc/lwc/no-async-operation
@@ -299,7 +328,7 @@ export default class PiiMaskingDashboard extends LightningElement {
         const fieldName = event.currentTarget.dataset.field;
         const newMask = event.detail.value;
         this.piiPreview = this.piiPreview.map(f =>
-            f.fieldName === fieldName ? { ...f, selectedMask: newMask } : f
+            f.fieldName === fieldName ? { ...f, selectedMask: newMask, showRegex: newMask === 'Regex' } : f
         );
     }
 
@@ -310,10 +339,14 @@ export default class PiiMaskingDashboard extends LightningElement {
     }
 
     handleSaveConfig() {
-        // Build field:maskType CSV — only include mask override if not 'auto'
+        // Build field:maskType CSV — support Regex:pattern format
         const fieldsCsv = this.piiPreview.map(f => {
             const mask = f.selectedMask || 'auto';
-            return mask === 'auto' ? f.fieldName : `${f.fieldName}:${mask}`;
+            if (mask === 'auto') return f.fieldName;
+            if (mask === 'Regex' && f.regexPattern) {
+                return `${f.fieldName}:Regex:${f.regexPattern}`;
+            }
+            return `${f.fieldName}:${mask}`;
         }).join(',');
 
         addObjectConfig({ objectName: this.selectedObject, fieldsCsv: fieldsCsv })
@@ -327,6 +360,70 @@ export default class PiiMaskingDashboard extends LightningElement {
             .catch(e => {
                 this.showToast('error', 'Error: ' + (e.body ? e.body.message : e.message));
             });
+    }
+
+    // ---- Preview / Dry Run ----
+
+    handlePreviewMasking() {
+        this.previewData = [];
+        this.previewObjectName = '';
+        this.showPreviewModal = true;
+        if (this.objectOptions.length === 0) {
+            getObjects().then(result => { this.objectOptions = result; })
+                .catch(e => this.showToast('error', 'Error loading objects: ' + (e.body ? e.body.message : e.message)));
+        }
+    }
+
+    handlePreviewObjectSelect(event) {
+        this.previewObjectName = event.detail.value;
+        this.isLoadingDryRun = true;
+        this.previewData = [];
+
+        previewMasking({ objectName: this.previewObjectName })
+            .then(result => {
+                this.previewData = result.map((r, idx) => ({
+                    key: idx,
+                    recordId: r.recordId,
+                    fieldName: r.fieldName,
+                    category: r.category,
+                    originalValue: r.originalValue,
+                    maskedValue: r.maskedValue
+                }));
+                this.isLoadingDryRun = false;
+            })
+            .catch(e => {
+                this.showToast('error', 'Preview error: ' + (e.body ? e.body.message : e.message));
+                this.isLoadingDryRun = false;
+            });
+    }
+
+    handleClosePreviewModal() {
+        this.showPreviewModal = false;
+    }
+
+    // ---- File/Attachment Masking ----
+
+    handleStartFileMasking() {
+        startFileMasking()
+            .then(jobId => {
+                if (jobId) {
+                    this.showToast('success', 'File masking started! Job ID: ' + jobId);
+                    this.loadActiveJobs();
+                }
+            })
+            .catch(e => {
+                this.showToast('error', 'Error: ' + (e.body ? e.body.message : e.message));
+            });
+    }
+
+    // ---- Regex Pattern ----
+
+    handleRegexChange(event) {
+        const fieldName = event.currentTarget.dataset.field;
+        const pattern = event.detail.value;
+        this.piiPreview = this.piiPreview.map(f =>
+            f.fieldName === fieldName ? { ...f, regexPattern: pattern } : f
+        );
     }
 
     downloadCsv() {

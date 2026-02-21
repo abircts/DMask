@@ -14,7 +14,12 @@
                         Sandbox</p>
                 </div>
             </div>
-            <div class="slds-no-flex">
+            <div class="slds-no-flex slds-grid slds-grid_vertical-align-center">
+                <span class={orgBadgeClass} style="margin-right:12px;font-size:0.7rem">{orgBadgeLabel}</span>
+                <lightning-button label="Preview" icon-name="utility:preview" onclick={handlePreviewMasking}
+                    class="slds-var-m-right_x-small"></lightning-button>
+                <lightning-button label="Mask Files" icon-name="utility:file" onclick={handleStartFileMasking}
+                    class="slds-var-m-right_x-small"></lightning-button>
                 <lightning-button variant="brand" label="Run Masking" icon-name="utility:play"
                     onclick={handleStartMasking} disabled={isRunning} class="run-button">
                 </lightning-button>
@@ -124,6 +129,14 @@
                                                             onchange={handleMaskChange} variant="label-hidden"
                                                             dropdown-alignment="left">
                                                         </lightning-combobox>
+                                                        <template if:true={field.showRegex}>
+                                                            <lightning-input type="text"
+                                                                placeholder="Regex pattern e.g. \d{3}-\d{2}-\d{4}"
+                                                                data-field={field.fieldName} value={field.regexPattern}
+                                                                onchange={handleRegexChange} variant="label-hidden"
+                                                                class="slds-var-m-top_xx-small">
+                                                            </lightning-input>
+                                                        </template>
                                                     </td>
                                                     <td>
                                                         <lightning-button-icon icon-name="utility:close"
@@ -257,6 +270,88 @@
                         class="slds-var-m-right_small"></lightning-button>
                     <lightning-button variant="brand" label={runButtonLabel} icon-name="utility:play"
                         onclick={handleConfirmRun} disabled={isRunDisabled}></lightning-button>
+                </footer>
+            </div>
+        </section>
+        <div class="slds-backdrop slds-backdrop_open"></div>
+    </template>
+
+    <!-- Preview / Dry Run Modal -->
+    <template if:true={showPreviewModal}>
+        <section class="slds-modal slds-fade-in-open">
+            <div class="slds-modal__container" style="max-width:900px">
+                <header class="slds-modal__header">
+                    <button class="slds-button slds-button_icon slds-modal__close slds-button_icon-inverse"
+                        onclick={handleClosePreviewModal}>
+                        <lightning-icon icon-name="utility:close" size="small" variant="inverse"></lightning-icon>
+                    </button>
+                    <h2 class="slds-modal__title slds-hyphenate">
+                        <lightning-icon icon-name="utility:preview" size="small"
+                            class="slds-var-m-right_small"></lightning-icon>
+                        Dry Run Preview — Before vs After
+                    </h2>
+                </header>
+                <div class="slds-modal__content slds-var-p-around_medium">
+                    <div class="slds-var-m-bottom_medium">
+                        <lightning-combobox label="Select Object to Preview" value={previewObjectName}
+                            options={objectOptions} onchange={handlePreviewObjectSelect}
+                            placeholder="Choose an object...">
+                        </lightning-combobox>
+                    </div>
+                    <template if:true={isLoadingDryRun}>
+                        <lightning-spinner size="small"></lightning-spinner>
+                    </template>
+                    <template if:true={hasPreviewData}>
+                        <div class="slds-scrollable" style="max-height:350px">
+                            <table class="slds-table slds-table_bordered slds-table_cell-buffer slds-table_striped">
+                                <thead>
+                                    <tr class="slds-line-height_reset">
+                                        <th scope="col">
+                                            <div class="slds-truncate">Record ID</div>
+                                        </th>
+                                        <th scope="col">
+                                            <div class="slds-truncate">Field</div>
+                                        </th>
+                                        <th scope="col">
+                                            <div class="slds-truncate">Category</div>
+                                        </th>
+                                        <th scope="col">
+                                            <div class="slds-truncate">Original Value</div>
+                                        </th>
+                                        <th scope="col">
+                                            <div class="slds-truncate">Masked Value</div>
+                                        </th>
+                                    </tr>
+                                </thead>
+                                <tbody>
+                                    <template for:each={previewData} for:item="row">
+                                        <tr key={row.key}>
+                                            <td>
+                                                <div class="slds-truncate">{row.recordId}</div>
+                                            </td>
+                                            <td>
+                                                <div class="slds-truncate">{row.fieldName}</div>
+                                            </td>
+                                            <td>
+                                                <div class="slds-truncate">{row.category}</div>
+                                            </td>
+                                            <td>
+                                                <div class="slds-truncate slds-text-color_error">{row.originalValue}
+                                                </div>
+                                            </td>
+                                            <td>
+                                                <div class="slds-truncate slds-text-color_success">{row.maskedValue}
+                                                </div>
+                                            </td>
+                                        </tr>
+                                    </template>
+                                </tbody>
+                            </table>
+                        </div>
+                    </template>
+                </div>
+                <footer class="slds-modal__footer">
+                    <lightning-button label="Close" onclick={handleClosePreviewModal}></lightning-button>
                 </footer>
             </div>
         </section>

@@ -1,7 +1,28 @@
 public with sharing class PiiMaskingController {
 
+    // ---- Sandbox Guard ----
+    
+    private static Boolean isSandbox() {
+        return [SELECT IsSandbox FROM Organization LIMIT 1].IsSandbox;
+    }
+    
+    @AuraEnabled(cacheable=true)
+    public static Map<String, Object> getOrgInfo() {
+        Organization org = [SELECT IsSandbox, Name, InstanceName FROM Organization LIMIT 1];
+        Map<String, Object> info = new Map<String, Object>();
+        info.put('isSandbox', org.IsSandbox);
+        info.put('orgName', org.Name);
+        info.put('instance', org.InstanceName);
+        return info;
+    }
+
     @AuraEnabled
     public static Id startMasking(List<String> selectedObjects) {
+        // SANDBOX GUARD: Prevent masking in production
+        if (!isSandbox()) {
+            throw new AuraHandledException('⛔ BLOCKED: Data masking is only allowed in Sandbox environments. This org is a PRODUCTION org.');
+        }
+        
         List<String> objectList;
         
         if (selectedObjects != null && !selectedObjects.isEmpty()) {
@@ -98,6 +119,10 @@ public with sharing class PiiMaskingController {
 
     @AuraEnabled
     public static Id retryFailed(String logName) {
+        // SANDBOX GUARD
+        if (!isSandbox()) {
+            throw new AuraHandledException('⛔ BLOCKED: Data masking is only allowed in Sandbox environments.');
+        }
         try {
             List<PII_Mask_Log__c> logs = [
                 SELECT Object_Name__c, Failed_Record_Ids__c 
@@ -199,6 +224,49 @@ public with sharing class PiiMaskingController {
         return result;
     }
 
+    // Dry-Run / Preview Masking: shows before → after for sample records without saving
+    @AuraEnabled
+    public static List<Map<String, Object>> previewMasking(String objectName) {
+        List<Map<String, Object>> result = new List<Map<String, Object>>();
+        
+        List<SandboxDataMasker.FieldMaskInfo> fields = SandboxDataMasker.detectPiiFields(objectName);
+        if (fields.isEmpty()) return result;
+        
+        // Build query for sample records
+        Set<String> fieldNames = new Set<String>{'Id'};
+        for (SandboxDataMasker.FieldMaskInfo info : fields) {
+            fieldNames.add(info.fieldName);
+        }
+        String query = 'SELECT ' + String.join(new List<String>(fieldNames), ',') + ' FROM ' + objectName + ' LIMIT 5';
+        List<sObject> records = Database.query(query);
+        
+        for (sObject rec : records) {
+            // Clone the record for masking simulation
+            sObject cloned = rec.clone(true, true, true, true);
+            
+            for (SandboxDataMasker.FieldMaskInfo info : fields) {
+                Object originalVal = rec.get(info.fieldName);
+                if (originalVal == null) continue;
+                
+                // Apply mask to clone
+                SandboxDataMasker masker = new SandboxDataMasker(new List<String>());
+                masker.simulateMask(cloned, info);
+                
+                Object maskedVal = cloned.get(info.fieldName);
+                
+                Map<String, Object> row = new Map<String, Object>();
+                row.put('recordId', rec.Id);
+                row.put('fieldName', info.fieldName);
+                row.put('category', info.piiCategory);
+                row.put('originalValue', String.valueOf(originalVal));
+                row.put('maskedValue', String.valueOf(maskedVal));
+                result.add(row);
+            }
+        }
+        
+        return result;
+    }
+
     // Save object config with selected fields. Same developer name = overrides existing.
     @AuraEnabled
     public static String addObjectConfig(String objectName, String fieldsCsv) {
@@ -270,5 +338,14 @@ public with sharing class PiiMaskingController {
         } catch (Exception e) {
             throw new AuraHandledException('Error removing config: ' + e.getMessage());
         }
+    }
+
+    // Start attachment/file masking
+    @AuraEnabled
+    public static Id startFileMasking() {
+        if (!isSandbox()) {
+            throw new AuraHandledException('⛔ BLOCKED: File masking is only allowed in Sandbox environments.');
+        }
+        return Database.executeBatch(new AttachmentMasker(), 10);
     }
 }
