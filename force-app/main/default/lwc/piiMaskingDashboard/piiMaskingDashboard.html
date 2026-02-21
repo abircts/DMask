@@ -206,6 +206,57 @@
         </div>
     </div>
 
+    <!-- Run Masking Modal -->
+    <template if:true={showRunModal}>
+        <section role="dialog" class="slds-modal slds-fade-in-open">
+            <div class="slds-modal__container">
+                <header class="slds-modal__header">
+                    <button class="slds-button slds-button_icon slds-modal__close slds-button_icon-inverse"
+                        onclick={handleCloseRunModal}>
+                        <lightning-icon icon-name="utility:close" size="small" variant="inverse"></lightning-icon>
+                    </button>
+                    <h2 class="slds-modal__title slds-hyphenate">
+                        <lightning-icon icon-name="utility:play" size="small"
+                            class="slds-var-m-right_small"></lightning-icon>
+                        Select Objects to Mask
+                    </h2>
+                </header>
+                <div class="slds-modal__content slds-var-p-around_medium">
+                    <template if:true={hasConfigs}>
+                        <div class="slds-var-m-bottom_small">
+                            <lightning-input type="checkbox" label="Select All" checked={allSelected}
+                                onchange={handleSelectAll} class="select-all-checkbox"></lightning-input>
+                        </div>
+                        <div class="slds-border_top slds-var-p-top_small">
+                            <template for:each={runModalItems} for:item="item">
+                                <div key={item.objectName}
+                                    class="slds-var-p-vertical_x-small slds-border_bottom run-modal-item">
+                                    <lightning-input type="checkbox" label={item.label} checked={item.selected}
+                                        data-obj={item.objectName} onchange={handleToggleRunItem}></lightning-input>
+                                    <p class="slds-text-body_small slds-text-color_weak slds-var-m-left_xx-large">
+                                        {item.fieldCount}
+                                    </p>
+                                </div>
+                            </template>
+                        </div>
+                    </template>
+                    <template if:false={hasConfigs}>
+                        <div class="slds-text-align_center slds-var-p-around_large slds-text-color_weak">
+                            No objects configured. Add an object first.
+                        </div>
+                    </template>
+                </div>
+                <footer class="slds-modal__footer">
+                    <lightning-button label="Cancel" onclick={handleCloseRunModal}
+                        class="slds-var-m-right_small"></lightning-button>
+                    <lightning-button variant="brand" label={runButtonLabel} icon-name="utility:play"
+                        onclick={handleConfirmRun} disabled={isRunDisabled}></lightning-button>
+                </footer>
+            </div>
+        </section>
+        <div class="slds-backdrop slds-backdrop_open"></div>
+    </template>
+
     <!-- Toast -->
     <template if:true={toastMessage}>
         <div class={toastClass}>

@@ -69,6 +69,10 @@ export default class PiiMaskingDashboard extends LightningElement {
     @track piiPreview = [];
     @track isLoadingPreview = false;
 
+    // Run modal
+    @track showRunModal = false;
+    @track runModalItems = [];
+
     configColumns = CONFIG_COLUMNS;
     historyColumns = HISTORY_COLUMNS;
     _pollTimer;
@@ -83,6 +87,13 @@ export default class PiiMaskingDashboard extends LightningElement {
     get configFormChevron() { return this.showConfigForm ? 'utility:chevrondown' : 'utility:chevronright'; }
     get toastClass() { return `toast-bar toast-${this.toastVariant}`; }
     get toastIcon() { return this.toastVariant === 'success' ? 'utility:success' : 'utility:error'; }
+    get allSelected() { return this.runModalItems.length > 0 && this.runModalItems.every(i => i.selected); }
+    get selectedRunCount() { return this.runModalItems.filter(i => i.selected).length; }
+    get isRunDisabled() { return this.selectedRunCount === 0; }
+    get runButtonLabel() {
+        const cnt = this.selectedRunCount;
+        return cnt === this.runModalItems.length ? `Run All (${cnt})` : `Run Selected (${cnt})`;
+    }
 
     connectedCallback() {
         this.loadConfigs();
@@ -126,14 +137,53 @@ export default class PiiMaskingDashboard extends LightningElement {
     }
 
     handleStartMasking() {
+        // Open modal with configured objects
+        this.loadConfigs();
+        this.runModalItems = this.configs.map(c => ({
+            objectName: c.objectName,
+            label: c.objectName,
+            fieldCount: c.fieldCount || 'Auto-detect',
+            selected: true
+        }));
+        this.showRunModal = true;
+    }
+
+    handleCloseRunModal() {
+        this.showRunModal = false;
+    }
+
+    handleSelectAll(event) {
+        const checked = event.target.checked;
+        this.runModalItems = this.runModalItems.map(i => ({ ...i, selected: checked }));
+    }
+
+    handleToggleRunItem(event) {
+        const objName = event.currentTarget.dataset.obj;
+        this.runModalItems = this.runModalItems.map(i =>
+            i.objectName === objName ? { ...i, selected: event.target.checked } : i
+        );
+    }
+
+    handleConfirmRun() {
+        const selectedObjects = this.runModalItems
+            .filter(i => i.selected)
+            .map(i => i.objectName);
+
+        if (selectedObjects.length === 0) {
+            this.showToast('error', 'Please select at least one object.');
+            return;
+        }
+
+        this.showRunModal = false;
         this.isRunning = true;
-        startMasking()
+
+        startMasking({ selectedObjects: selectedObjects })
             .then(jobId => {
                 if (jobId) {
-                    this.showToast('success', 'Masking job started! Job ID: ' + jobId);
+                    this.showToast('success', 'Masking started for ' + selectedObjects.join(', ') + '! Job ID: ' + jobId);
                     this.loadActiveJobs();
                 } else {
-                    this.showToast('error', 'No objects configured. Add an object first.');
+                    this.showToast('error', 'Failed to start masking.');
                     this.isRunning = false;
                 }
             })

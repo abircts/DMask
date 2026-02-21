@@ -1,15 +1,20 @@
 public with sharing class PiiMaskingController {
 
     @AuraEnabled
-    public static Id startMasking() {
-        List<PII_Mask_Config__mdt> configs = [SELECT Object_API_Name__c FROM PII_Mask_Config__mdt];
+    public static Id startMasking(List<String> selectedObjects) {
+        List<String> objectList;
         
-        Set<String> uniqueObjects = new Set<String>();
-        for (PII_Mask_Config__mdt config : configs) {
-            uniqueObjects.add(config.Object_API_Name__c);
+        if (selectedObjects != null && !selectedObjects.isEmpty()) {
+            objectList = selectedObjects;
+        } else {
+            List<PII_Mask_Config__mdt> configs = [SELECT Object_API_Name__c FROM PII_Mask_Config__mdt];
+            Set<String> uniqueObjects = new Set<String>();
+            for (PII_Mask_Config__mdt config : configs) {
+                uniqueObjects.add(config.Object_API_Name__c);
+            }
+            objectList = new List<String>(uniqueObjects);
         }
         
-        List<String> objectList = new List<String>(uniqueObjects);
         if (!objectList.isEmpty()) {
             return Database.executeBatch(new SandboxDataMasker(objectList));
         }

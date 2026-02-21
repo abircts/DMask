@@ -175,3 +175,17 @@
 .remove-btn:hover {
     --sds-c-button-icon-color-foreground: #c23934;
 }
+
+/* Run modal */
+.run-modal-item {
+    padding: 0.5rem 0;
+    transition: background-color 0.15s ease;
+}
+
+.run-modal-item:hover {
+    background-color: #f4f6f9;
+}
+
+.select-all-checkbox {
+    font-weight: 700;
+}
