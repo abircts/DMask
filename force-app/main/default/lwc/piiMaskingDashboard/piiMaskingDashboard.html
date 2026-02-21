@@ -168,7 +168,7 @@
                 <div class="slds-section__content">
                     <template if:true={hasConfigs}>
                         <lightning-datatable key-field="id" data={configs} columns={configColumns} hide-checkbox-column
-                            class="config-table">
+                            onrowaction={handleConfigAction} class="config-table">
                         </lightning-datatable>
                     </template>
                     <template if:false={hasConfigs}>

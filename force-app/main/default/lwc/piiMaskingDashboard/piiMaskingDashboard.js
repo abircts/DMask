@@ -6,12 +6,19 @@ import startMasking from '@salesforce/apex/PiiMaskingController.startMasking';
 import getObjects from '@salesforce/apex/PiiMaskingController.getObjects';
 import previewPiiFields from '@salesforce/apex/PiiMaskingController.previewPiiFields';
 import addObjectConfig from '@salesforce/apex/PiiMaskingController.addObjectConfig';
+import removeConfig from '@salesforce/apex/PiiMaskingController.removeConfig';
 
 const CONFIG_COLUMNS = [
     { label: 'Object', fieldName: 'objectName', type: 'text', initialWidth: 180 },
     { label: 'PII Fields', fieldName: 'fieldCount', type: 'text', initialWidth: 120 },
     { label: 'Fields Detail', fieldName: 'fields', type: 'text', wrapText: true },
-    { label: 'Strategy', fieldName: 'maskingType', type: 'text', initialWidth: 100 }
+    { label: 'Strategy', fieldName: 'maskingType', type: 'text', initialWidth: 100 },
+    {
+        type: 'action',
+        typeAttributes: {
+            rowActions: [{ label: 'Remove', name: 'remove', iconName: 'utility:delete' }]
+        }
+    }
 ];
 
 const HISTORY_COLUMNS = [
@@ -117,6 +124,25 @@ export default class PiiMaskingDashboard extends LightningElement {
     loadConfigs() {
         getConfigs().then(result => { this.configs = result; })
             .catch(e => console.error('Error loading configs', e));
+    }
+
+    handleConfigAction(event) {
+        const action = event.detail.action.name;
+        const row = event.detail.row;
+        if (action === 'remove') {
+            removeConfig({ devName: row.id })
+                .then(msg => {
+                    this.showToast('success', msg);
+                    // Remove from local list immediately
+                    this.configs = this.configs.filter(c => c.id !== row.id);
+                    // Refresh from server after deploy completes
+                    // eslint-disable-next-line @lwc/lwc/no-async-operation
+                    setTimeout(() => this.loadConfigs(), 5000);
+                })
+                .catch(e => {
+                    this.showToast('error', 'Error: ' + (e.body ? e.body.message : e.message));
+                });
+        }
     }
 
     loadActiveJobs() {

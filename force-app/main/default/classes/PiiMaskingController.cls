@@ -7,7 +7,7 @@ public with sharing class PiiMaskingController {
         if (selectedObjects != null && !selectedObjects.isEmpty()) {
             objectList = selectedObjects;
         } else {
-            List<PII_Mask_Config__mdt> configs = [SELECT Object_API_Name__c FROM PII_Mask_Config__mdt];
+            List<PII_Mask_Config__mdt> configs = [SELECT Object_API_Name__c FROM PII_Mask_Config__mdt WHERE Active__c = true];
             Set<String> uniqueObjects = new Set<String>();
             for (PII_Mask_Config__mdt config : configs) {
                 uniqueObjects.add(config.Object_API_Name__c);
@@ -27,6 +27,7 @@ public with sharing class PiiMaskingController {
         for (PII_Mask_Config__mdt config : [
             SELECT DeveloperName, Object_API_Name__c, Field_API_Name__c, Masking_Type__c, Pattern__c
             FROM PII_Mask_Config__mdt
+            WHERE Active__c = true
             ORDER BY Object_API_Name__c
         ]) {
             Map<String, Object> row = new Map<String, Object>();
@@ -183,6 +184,11 @@ public with sharing class PiiMaskingController {
             typeField.value = 'Auto';
             cmd.values.add(typeField);
             
+            Metadata.CustomMetadataValue activeField = new Metadata.CustomMetadataValue();
+            activeField.field = 'Active__c';
+            activeField.value = true;
+            cmd.values.add(activeField);
+            
             Metadata.DeployContainer container = new Metadata.DeployContainer();
             container.addMetadata(cmd);
             
@@ -198,6 +204,29 @@ public with sharing class PiiMaskingController {
             return msg;
         } catch (Exception e) {
             throw new AuraHandledException('Error saving config: ' + e.getMessage());
+        }
+    }
+
+    // Soft-delete: set Active__c = false
+    @AuraEnabled
+    public static String removeConfig(String devName) {
+        try {
+            Metadata.CustomMetadata cmd = new Metadata.CustomMetadata();
+            cmd.fullName = 'PII_Mask_Config__mdt.' + devName;
+            cmd.label = devName;
+            
+            Metadata.CustomMetadataValue activeField = new Metadata.CustomMetadataValue();
+            activeField.field = 'Active__c';
+            activeField.value = false;
+            cmd.values.add(activeField);
+            
+            Metadata.DeployContainer container = new Metadata.DeployContainer();
+            container.addMetadata(cmd);
+            Metadata.Operations.enqueueDeployment(container, new PiiMaskingDeployCallback());
+            
+            return 'Configuration removed.';
+        } catch (Exception e) {
+            throw new AuraHandledException('Error removing config: ' + e.getMessage());
         }
     }
 }
