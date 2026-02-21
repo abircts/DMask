@@ -10,8 +10,8 @@
                     <h2 class="slds-card__header-title slds-text-heading_medium header-title">
                         PII Data Masking Dashboard
                     </h2>
-                    <p class="slds-text-body_small slds-text-color_weak">Mask sensitive data in your Sandbox environment
-                    </p>
+                    <p class="slds-text-body_small slds-text-color_weak">Auto-detect &amp; mask sensitive data in your
+                        Sandbox</p>
                 </div>
             </div>
             <div class="slds-no-flex">
@@ -21,8 +21,9 @@
             </div>
         </div>
 
-        <!-- Active Jobs -->
         <div class="slds-card__body slds-card__body_inner">
+
+            <!-- Active Jobs -->
             <template if:true={hasActiveJobs}>
                 <div class="slds-section slds-is-open slds-var-m-bottom_medium">
                     <h3 class="slds-section__title slds-theme_shade section-header">
@@ -37,12 +38,10 @@
                             <div key={job.id}
                                 class="slds-box slds-box_x-small slds-var-m-bottom_small job-card active-job-card">
                                 <div class="slds-grid slds-grid_align-spread slds-var-m-bottom_x-small">
-                                    <div>
-                                        <lightning-badge label={job.status} class="status-badge"></lightning-badge>
-                                    </div>
-                                    <div class="slds-text-body_small slds-text-color_weak">
+                                    <lightning-badge label={job.status} class="status-badge"></lightning-badge>
+                                    <span class="slds-text-body_small slds-text-color_weak">
                                         {job.processed} / {job.total} batches
-                                    </div>
+                                    </span>
                                 </div>
                                 <lightning-progress-bar value={job.progress} size="medium"
                                     variant="circular"></lightning-progress-bar>
@@ -55,7 +54,7 @@
                 </div>
             </template>
 
-            <!-- Add Configuration -->
+            <!-- Add Object for Masking -->
             <div class="slds-section slds-is-open slds-var-m-bottom_medium">
                 <h3 class="slds-section__title slds-theme_shade section-header">
                     <button class="slds-button slds-section__title-action" onclick={toggleConfigForm}>
@@ -64,55 +63,97 @@
                         <span class="slds-truncate">
                             <lightning-icon icon-name="utility:add" size="x-small"
                                 class="slds-var-m-right_x-small"></lightning-icon>
-                            Add Masking Configuration
+                            Add Object for Masking
                         </span>
                     </button>
                 </h3>
                 <template if:true={showConfigForm}>
                     <div class="slds-section__content config-form-panel">
                         <div class="slds-grid slds-gutters slds-wrap">
-                            <!-- Object Picker -->
-                            <div class="slds-col slds-size_1-of-2 slds-var-p-bottom_small">
-                                <lightning-combobox name="objectName" label="Object" placeholder="Select an Object..."
-                                    options={objectOptions} value={selectedObject}
-                                    onchange={handleObjectChange}></lightning-combobox>
-                            </div>
-                            <!-- Field Picker -->
-                            <div class="slds-col slds-size_1-of-2 slds-var-p-bottom_small">
-                                <lightning-combobox name="fieldName" label="Field" placeholder="Select a Field..."
-                                    options={fieldOptions} value={selectedField} onchange={handleFieldChange}
-                                    disabled={isFieldDisabled}></lightning-combobox>
-                            </div>
-                            <!-- Masking Type -->
-                            <div class="slds-col slds-size_1-of-2 slds-var-p-bottom_small">
-                                <lightning-combobox name="maskingType" label="Masking Type"
-                                    placeholder="Select Masking Type..." options={maskingTypeOptions}
-                                    value={selectedMaskingType} onchange={handleMaskingTypeChange}></lightning-combobox>
-                            </div>
-                            <!-- Pattern -->
-                            <div class="slds-col slds-size_1-of-2 slds-var-p-bottom_small">
-                                <lightning-input label="Pattern (optional)" value={configPattern}
-                                    placeholder="e.g. .invalid or MASKED" onchange={handlePatternChange}
-                                    field-level-help="For Static: the replacement value. For Suffix: appended to original."></lightning-input>
+                            <div class="slds-col slds-size_1-of-1 slds-var-p-bottom_small">
+                                <lightning-combobox name="objectName" label="Select Object"
+                                    placeholder="Choose an object to mask..." options={objectOptions}
+                                    value={selectedObject} onchange={handleObjectChange}>
+                                </lightning-combobox>
+                                <p class="slds-text-body_small slds-text-color_weak slds-var-m-top_xx-small">
+                                    PII fields will be auto-detected based on field name &amp; type (Email, Phone, Name,
+                                    Address, etc.)
+                                </p>
                             </div>
                         </div>
+
+                        <!-- Auto-detected PII Preview -->
+                        <template if:true={hasPiiPreview}>
+                            <div class="slds-var-m-top_small pii-preview-box">
+                                <h4 class="slds-text-title_caps slds-var-m-bottom_x-small">
+                                    <lightning-icon icon-name="utility:preview" size="xx-small"
+                                        class="slds-var-m-right_xx-small"></lightning-icon>
+                                    Auto-Detected PII Fields ({piiPreviewCount})
+                                </h4>
+                                <div class="slds-scrollable_y preview-table-container">
+                                    <table
+                                        class="slds-table slds-table_bordered slds-table_cell-buffer slds-table_fixed-layout">
+                                        <thead>
+                                            <tr class="slds-line-height_reset">
+                                                <th scope="col">
+                                                    <div class="slds-truncate">Field</div>
+                                                </th>
+                                                <th scope="col">
+                                                    <div class="slds-truncate">Type</div>
+                                                </th>
+                                                <th scope="col">
+                                                    <div class="slds-truncate">Masking</div>
+                                                </th>
+                                            </tr>
+                                        </thead>
+                                        <tbody>
+                                            <template for:each={piiPreview} for:item="field">
+                                                <tr key={field.fieldName}>
+                                                    <td>
+                                                        <div class="slds-truncate">{field.fieldName}</div>
+                                                    </td>
+                                                    <td>
+                                                        <div class="slds-truncate">{field.fieldType}</div>
+                                                    </td>
+                                                    <td>
+                                                        <div class="slds-truncate">
+                                                            <lightning-badge label={field.maskLabel}
+                                                                class={field.badgeClass}></lightning-badge>
+                                                        </div>
+                                                    </td>
+                                                </tr>
+                                            </template>
+                                        </tbody>
+                                    </table>
+                                </div>
+                            </div>
+                        </template>
+
+                        <template if:true={noPiiFound}>
+                            <div class="slds-var-m-top_small slds-text-color_weak slds-text-align_center">
+                                <lightning-icon icon-name="utility:info" size="x-small"
+                                    class="slds-var-m-right_xx-small"></lightning-icon>
+                                No PII fields auto-detected for this object.
+                            </div>
+                        </template>
+
                         <div class="slds-grid slds-grid_align-end slds-var-m-top_small">
                             <lightning-button label="Cancel" onclick={handleCancelConfig}
                                 class="slds-var-m-right_small"></lightning-button>
-                            <lightning-button variant="brand" label="Save Configuration" icon-name="utility:save"
+                            <lightning-button variant="brand" label="Add Object" icon-name="utility:save"
                                 onclick={handleSaveConfig} disabled={isSaveDisabled}></lightning-button>
                         </div>
                     </div>
                 </template>
             </div>
 
-            <!-- Configs -->
+            <!-- Current Config -->
             <div class="slds-section slds-is-open slds-var-m-bottom_medium">
                 <h3 class="slds-section__title slds-theme_shade section-header">
                     <span class="slds-truncate slds-var-p-horizontal_small">
                         <lightning-icon icon-name="utility:settings" size="x-small"
                             class="slds-var-m-right_x-small"></lightning-icon>
-                        Masking Configuration
+                        Configured Objects
                     </span>
                 </h3>
                 <div class="slds-section__content">
@@ -122,10 +163,9 @@
                         </lightning-datatable>
                     </template>
                     <template if:false={hasConfigs}>
-                        <div
-                            class="slds-illustration slds-illustration_small slds-var-p-around_medium slds-text-align_center">
+                        <div class="slds-var-p-around_medium slds-text-align_center">
                             <p class="slds-text-body_regular slds-text-color_weak">
-                                No masking configurations found. Use the form above to add one.
+                                No objects configured. Use the form above to add one.
                             </p>
                         </div>
                     </template>
@@ -157,7 +197,7 @@
         </div>
     </div>
 
-    <!-- Toast-like notification -->
+    <!-- Toast -->
     <template if:true={toastMessage}>
         <div class={toastClass}>
             <lightning-icon icon-name={toastIcon} size="x-small" class="slds-var-m-right_small"></lightning-icon>

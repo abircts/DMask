@@ -43,11 +43,6 @@
     background-color: #f4f6f9;
 }
 
-/* Status badge */
-.status-badge {
-    font-weight: 600;
-}
-
 /* Config Form */
 .config-form-panel {
     background: #f4f6f9;
@@ -68,6 +63,64 @@
         opacity: 1;
         transform: translateY(0);
     }
+}
+
+/* PII Preview */
+.pii-preview-box {
+    background: #ffffff;
+    border: 1px solid #d8dde6;
+    border-radius: 8px;
+    padding: 0.75rem 1rem;
+}
+
+.pii-preview-box h4 {
+    color: #3e3e3c;
+    font-size: 0.7rem;
+    font-weight: 700;
+}
+
+.preview-table-container {
+    max-height: 240px;
+}
+
+/* PII Category Badges */
+.pii-badge {
+    font-size: 0.7rem;
+}
+
+.badge-email {
+    --sds-c-badge-color-background: #e8f4fd;
+    --sds-c-badge-text-color: #0070d2;
+}
+
+.badge-phone {
+    --sds-c-badge-color-background: #e6f7e9;
+    --sds-c-badge-text-color: #2e844a;
+}
+
+.badge-name {
+    --sds-c-badge-color-background: #fef3e6;
+    --sds-c-badge-text-color: #b95500;
+}
+
+.badge-address {
+    --sds-c-badge-color-background: #f3e6fe;
+    --sds-c-badge-text-color: #7526c2;
+}
+
+.badge-date {
+    --sds-c-badge-color-background: #fde6f0;
+    --sds-c-badge-text-color: #c2185b;
+}
+
+.badge-url {
+    --sds-c-badge-color-background: #e6f0fd;
+    --sds-c-badge-text-color: #1565c0;
+}
+
+.badge-text {
+    --sds-c-badge-color-background: #f0f0f0;
+    --sds-c-badge-text-color: #706e6b;
 }
 
 /* Toast */
